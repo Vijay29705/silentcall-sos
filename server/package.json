@@ -1,0 +1,17 @@
+{
+  "name": "silentcall-sos-server",
+  "version": "1.0.0",
+  "description": "SilentCall-SOS: Zero-Audio Emergency Triage Engine - Backend Server",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}
