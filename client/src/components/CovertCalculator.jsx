@@ -148,6 +148,17 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
         console.warn('[CovertCalculator] Direct WS emit fallback:', wsErr);
       }
 
+      // Direct HTTP POST Fallback to Render cloud
+      try {
+        fetch('https://silentcall-sos.onrender.com/api/sos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(sosPacket.payload)
+        }).then(r => r.json()).then(res => {
+          console.log('[CovertCalculator] Cloud Render API confirmed SOS:', res);
+        }).catch(err => console.warn('[CovertCalculator] HTTP fallback error:', err));
+      } catch (httpErr) {}
+
       if (onSendSOS) {
         onSendSOS(sosPacket);
       }

@@ -28,7 +28,7 @@ import {
 
 // Production & Local Dynamic API/WS Configuration
 const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
-const isLocal = typeof window !== 'undefined' && (
+const isLocal = !isNative && typeof window !== 'undefined' && (
   window.location.hostname === 'localhost' ||
   window.location.hostname === '127.0.0.1' ||
   window.location.hostname.startsWith('192.168.') ||
@@ -36,8 +36,8 @@ const isLocal = typeof window !== 'undefined' && (
 );
 const defaultProto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const defaultHost = typeof window !== 'undefined' ? (window.location.hostname || 'localhost') : 'localhost';
-export const WS_URL = import.meta.env.VITE_WS_URL || (isLocal ? `${defaultProto}//${defaultHost}:5000` : 'wss://silentcall-sos.onrender.com');
-export const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : (isLocal ? `http://${defaultHost}:5000` : 'https://silentcall-sos.onrender.com'));
+export const WS_URL = import.meta.env.VITE_WS_URL || (isNative ? 'wss://silentcall-sos.onrender.com' : (isLocal ? `${defaultProto}//${defaultHost}:5000` : 'wss://silentcall-sos.onrender.com'));
+export const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : (isNative ? 'https://silentcall-sos.onrender.com' : (isLocal ? `http://${defaultHost}:5000` : 'https://silentcall-sos.onrender.com')));
 
 export default function App() {
   // Mobile Device State Machine: Defaults to LOCKSCREEN so it acts as the device lock guard

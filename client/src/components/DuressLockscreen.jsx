@@ -103,15 +103,59 @@ export default function DuressLockscreen({
     };
   }, []);
 
-  // Dispatch SOS over WebSocket and/or callback with full GPS & telemetry
-  const executeSosDispatch = useCallback(() => {
-    console.warn('[SECURITY] 15-second revocation grace expired. Emitting TRIGGER_SOS packet.');
+  // Dispatch SOS immediately over Dual-Channel (WebSocket + HTTP Fallback to Render)
+  const executeSosDispatch = useCallback(async () => {
+    console.warn('[SECURITY] Coercion authenticated. Emitting TRIGGER_SOS packet immediately to Render & Vercel.');
     setIsSosDispatched(true);
 
+    // 1. Invoke parent triggerEmergency (collects GPS, decibel, wake lock, etc.)
     if (triggerEmergency) {
       triggerEmergency('DURESS_PIN_COERCION');
     }
-  }, [triggerEmergency]);
+
+    // 2. Direct WebSocket dispatch guarantee
+    try {
+      const activeWs = ws || window.__SILENTCALL_WS__;
+      if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+        activeWs.send(
+          JSON.stringify({
+            type: 'TRIGGER_SOS',
+            payload: {
+              triggerType: 'DURESS_PIN_COERCION',
+              threatLevel: 'CRITICAL',
+              device: 'Poco M6 Pro 5G (Xiaomi HyperOS / Android 14)',
+              timestamp: new Date().toISOString()
+            }
+          })
+        );
+      }
+    } catch (wsErr) {
+      console.warn('[WS] Direct dispatch fallback:', wsErr);
+    }
+
+    // 3. Direct HTTP POST fallback directly to Render cluster
+    try {
+      const { getGeolocationTelemetry } = await import('../utils/sensorTriggers');
+      const geo = await getGeolocationTelemetry();
+
+      fetch('https://silentcall-sos.onrender.com/api/sos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          triggerType: 'DURESS_PIN_COERCION',
+          threatLevel: 'CRITICAL',
+          coordinates: geo,
+          device: 'Poco M6 Pro 5G (Xiaomi HyperOS / Android 14)',
+          notes: 'Duress PIN 999999 verified with long-press guard. Direct cloud dispatch.',
+          timestamp: new Date().toISOString()
+        })
+      }).then(r => r.json()).then(res => {
+        console.log('[DuressLockscreen] Cloud Render API confirmed SOS:', res);
+      }).catch(httpErr => console.warn('[DuressLockscreen] HTTP dispatch fallback error:', httpErr));
+    } catch (e) {
+      console.warn('[DuressLockscreen] Sensor/HTTP error:', e);
+    }
+  }, [triggerEmergency, ws]);
 
   // Duress Sequence Activated
   const enterDuressMode = useCallback(() => {
@@ -123,36 +167,24 @@ export default function DuressLockscreen({
       window.dispatchEvent(new CustomEvent('ALARM_TRIGGERED'));
     } catch (e) {}
 
-    // 0. Acquire emergency wake lock & start silent audio keep-alive loop
+    // 0. Acquire emergency wake lock
     acquireEmergencyWakeLock();
 
-    // 1. Enter simulated shutdown immediately
+    // 1. Immediately dispatch emergency SOS (Zero Delay)
+    executeSosDispatch();
+
+    // 2. Enter simulated shutdown immediately
     setScreenState('SHUTTING_DOWN');
-    setGraceSecondsLeft(15);
-    setIsSosDispatched(false);
+    setIsSosDispatched(true);
 
     if ('vibrate' in navigator) {
       try { navigator.vibrate([40, 60, 40]); } catch (e) {}
     }
 
-    // 2. Transition to 100% black screen after 2.5s OS shutdown animation
+    // 3. Transition to 100% black screen after 2.5s OS shutdown animation
     shutdownTimeoutRef.current = setTimeout(() => {
       setScreenState('BLACKOUT');
     }, 2500);
-
-    // 3. Start 15-Second Silent Revocation Window countdown
-    if (graceTimerRef.current) clearInterval(graceTimerRef.current);
-    graceTimerRef.current = setInterval(() => {
-      setGraceSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(graceTimerRef.current);
-          graceTimerRef.current = null;
-          executeSosDispatch();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
   }, [executeSosDispatch]);
 
   // Clean unlock handler (180499) -> Drops user straight onto phone's REAL Home Screen!
