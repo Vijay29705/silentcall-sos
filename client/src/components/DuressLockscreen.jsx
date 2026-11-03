@@ -103,7 +103,7 @@ export default function DuressLockscreen({
     };
   }, []);
 
-  // Dispatch SOS over WebSocket and/or callback
+  // Dispatch SOS over WebSocket and/or callback with full GPS & telemetry
   const executeSosDispatch = useCallback(() => {
     console.warn('[SECURITY] 15-second revocation grace expired. Emitting TRIGGER_SOS packet.');
     setIsSosDispatched(true);
@@ -111,26 +111,7 @@ export default function DuressLockscreen({
     if (triggerEmergency) {
       triggerEmergency('DURESS_PIN_COERCION');
     }
-
-    // Direct WebSocket dispatch if available
-    try {
-      const activeWs = ws || window.__SILENTCALL_WS__;
-      if (activeWs && activeWs.readyState === WebSocket.OPEN) {
-        activeWs.send(
-          JSON.stringify({
-            type: 'TRIGGER_SOS',
-            payload: {
-              triggerType: 'DURESS_PIN_COERCION',
-              threatLevel: 'CRITICAL',
-              timestamp: new Date().toISOString()
-            }
-          })
-        );
-      }
-    } catch (err) {
-      console.warn('[WS] Direct dispatch fallback:', err);
-    }
-  }, [triggerEmergency, ws]);
+  }, [triggerEmergency]);
 
   // Duress Sequence Activated
   const enterDuressMode = useCallback(() => {

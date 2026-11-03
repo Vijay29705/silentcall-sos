@@ -257,6 +257,30 @@ public class BackgroundSensorService extends Service implements SensorEventListe
     private void executeNetworkDispatch() {
         new Thread(() -> {
             try {
+                double latitude = 13.0550;
+                double longitude = 80.2600;
+                float accuracy = 5.0f;
+
+                try {
+                    android.location.LocationManager lm = (android.location.LocationManager) getSystemService(Context.LOCATION_SERVICE);
+                    if (lm != null) {
+                        boolean hasFine = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+                        boolean hasCoarse = checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+                        if (hasFine || hasCoarse) {
+                            android.location.Location locGps = lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER);
+                            android.location.Location locNet = lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER);
+                            android.location.Location bestLoc = locGps != null ? locGps : locNet;
+                            if (bestLoc != null) {
+                                latitude = bestLoc.getLatitude();
+                                longitude = bestLoc.getLongitude();
+                                accuracy = bestLoc.getAccuracy();
+                            }
+                        }
+                    }
+                } catch (Exception locEx) {
+                    locEx.printStackTrace();
+                }
+
                 URL url = new URL("https://silentcall-sos.onrender.com/api/sos");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("POST");
@@ -268,8 +292,8 @@ public class BackgroundSensorService extends Service implements SensorEventListe
                 String jsonPayload = "{"
                     + "\"triggerType\":\"HARDWARE_ACCELEROMETER_SHAKE\","
                     + "\"threatLevel\":\"CRITICAL\","
-                    + "\"coordinates\":{\"latitude\":13.0550,\"longitude\":80.2600},"
-                    + "\"telemetry\":{\"decibelLevel\":72,\"battery\":{\"level\":80,\"charging\":false}},"
+                    + "\"coordinates\":{\"latitude\":" + latitude + ",\"longitude\":" + longitude + ",\"accuracy\":" + accuracy + "},"
+                    + "\"telemetry\":{\"decibelLevel\":72,\"battery\":{\"level\":80,\"charging\":false},\"deviceModel\":\"Poco M6 Pro 5G (Xiaomi HyperOS / Android 14)\"},"
                     + "\"notes\":\"Verified 3-cycle intentional shake detected after 5s grace window\""
                     + "}";
 

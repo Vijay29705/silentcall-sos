@@ -126,6 +126,35 @@ function findNearestPcrVehicle(lat, lng) {
     }
   }
 
+  // If the nearest pre-configured unit is farther than 10km (user is testing at their real location)
+  // Dynamically position a sector response unit near the real coordinates!
+  if (minDistance > 10) {
+    const dynamicLat = parseFloat((lat + 0.011).toFixed(5));
+    const dynamicLng = parseFloat((lng + 0.013).toFixed(5));
+    const dynamicDist = calculateDistanceKm(lat, lng, dynamicLat, dynamicLng);
+
+    const sectorUnit = {
+      unitId: `PCR-SECTOR-FAST-01`,
+      callsign: 'PCR Sector Fast Interceptor',
+      vehicleType: 'Mahindra Scorpio Emergency Unit',
+      driverName: 'Special Interceptor Officer',
+      contactNumber: '+91 94440-11211',
+      status: 'DISPATCHED_EN_ROUTE',
+      coordinates: { latitude: dynamicLat, longitude: dynamicLng },
+      distanceKm: dynamicDist,
+      etaMinutes: Math.max(2, Math.round(dynamicDist * 2.5)),
+      currentAssignment: null
+    };
+
+    const existingIdx = pcrVehicles.findIndex(v => v.unitId === sectorUnit.unitId);
+    if (existingIdx !== -1) {
+      pcrVehicles[existingIdx] = sectorUnit;
+    } else {
+      pcrVehicles.unshift(sectorUnit);
+    }
+    return sectorUnit;
+  }
+
   const etaMinutes = Math.max(2, Math.round(minDistance * 2.5));
   return {
     ...nearest,
@@ -392,6 +421,10 @@ async function createIncident(payload = {}) {
   broadcast({
     type: 'TRIGGER_SOS',
     payload: incident
+  });
+  broadcast({
+    type: 'PCR_FLEET_UPDATE',
+    payload: pcrVehicles
   });
 
   console.log(`[SOS-DISPATCH] Alert Triggered: ${incident.id} | Type: ${incident.triggerType} | Indoor: ${indoorFloorEstimate || 'N/A'} | Hash: ${incident.blockHash.slice(0, 16)}...`);

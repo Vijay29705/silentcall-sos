@@ -104,6 +104,19 @@ export default function App() {
             setActiveIncidentId(newIncident.id);
             setIncidents((prev) => [newIncident, ...prev.filter((i) => i.id !== newIncident.id)]);
 
+            if (newIncident.assignedPcrUnit) {
+              setPcrVehicles((prev) => {
+                const assigned = newIncident.assignedPcrUnit;
+                const idx = prev.findIndex((v) => v.unitId === assigned.unitId);
+                if (idx !== -1) {
+                  const copy = [...prev];
+                  copy[idx] = { ...copy[idx], ...assigned, status: 'DISPATCHED_EN_ROUTE', currentAssignment: newIncident.id };
+                  return copy;
+                }
+                return [{ ...assigned, status: 'DISPATCHED_EN_ROUTE', currentAssignment: newIncident.id }, ...prev];
+              });
+            }
+
             // Start 3-second heartbeat watchdog emitter
             heartbeatManager.start(newIncident.id, wsRef.current, () => ({
               battery: newIncident.telemetry?.battery,
@@ -113,6 +126,13 @@ export default function App() {
 
             const triggerLabel = (newIncident.triggerType || 'EMERGENCY').replace(/_/g, ' ');
             showNotification(`🚨 INCOMING ${triggerLabel}: ${newIncident.id} (Assigned: ${newIncident.assignedPcrUnit?.callsign || 'Patrol Unit'})`);
+            break;
+          }
+
+          case 'PCR_FLEET_UPDATE': {
+            if (Array.isArray(message.payload)) {
+              setPcrVehicles(message.payload);
+            }
             break;
           }
 
