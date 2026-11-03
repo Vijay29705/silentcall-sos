@@ -19,20 +19,22 @@ import {
 import { registerMockProximityTap } from '../utils/sensorTriggers';
 import { acquireEmergencyWakeLock, releaseEmergencyWakeLock } from '../utils/wakeLockManager';
 
+const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
 const defaultHost = typeof window !== 'undefined' ? (window.location.hostname || 'localhost') : 'localhost';
-const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : `http://${defaultHost}:5000`);
+const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : (isNative ? 'https://silentcall-sos.onrender.com' : `http://${defaultHost}:5000`));
 
 /**
  * DuressLockscreen
  * 
  * Multi-Tier False-Alarm Mitigation Protocol:
  * 1. State Machine: LOCKED -> SHUTTING_DOWN -> BLACKOUT -> REVOKE_MODAL -> UNLOCKED
- * 2. Long-Press Gesture Guard: Typing '9-9-9' requires holding the 4th digit '9' >= 1500ms.
+ * 2. 6-Digit Master PIN: '180499' unlocks normally.
+ * 3. 6-Digit Duress Coercion PIN: '999999' with a 1.5-second hold requirement on 6th '9'.
  *    Quick taps (< 1500ms) by toddlers or pocket friction are rejected.
- * 3. 15-Second Silent Revocation Window: Simulated OS shutdown & blackout trigger immediately,
+ * 4. 15-Second Silent Revocation Window: Simulated OS shutdown & blackout trigger immediately,
  *    holding network SOS dispatch in pending state for 15s.
- * 4. Hidden Escape / Abort Hatch: Double-clicking top-right corner on blackout screen opens
- *    a discreet Master PIN ('1234') prompt. Entering '1234' cancels pending SOS, emits
+ * 5. Hidden Escape / Abort Hatch: Double-clicking top-right corner on blackout screen opens
+ *    a discreet Master PIN ('180499') prompt. Entering '180499' cancels pending SOS, emits
  *    REVOKE_SOS if already dispatched, and smoothly restores unlocked state.
  */
 export default function DuressLockscreen({
@@ -52,8 +54,8 @@ export default function DuressLockscreen({
   const [isShaking, setIsShaking] = useState(false);
   const [gestureGuardAlert, setGestureGuardAlert] = useState(null);
 
-  // Holding status for 4th digit '9'
-  const [isHoldingFourthDigit, setIsHoldingFourthDigit] = useState(false);
+  // Holding status for 6th digit '9'
+  const [isHoldingSixthDigit, setIsHoldingSixthDigit] = useState(false);
   const [holdProgress, setHoldProgress] = useState(0);
 
   // Master PIN abort state in REVOKE_MODAL
@@ -132,7 +134,13 @@ export default function DuressLockscreen({
 
   // Duress Sequence Activated
   const enterDuressMode = useCallback(() => {
-    console.warn('[SECURITY] Duress PIN verified with Long-Press Guard. Coercion sequence initiated.');
+    console.warn('[SECURITY] 6-Digit Duress PIN (999999) verified with Long-Press Guard. Coercion sequence initiated.');
+
+    // Persist pending alarm flag for in-app disarm banner
+    try {
+      localStorage.setItem('silentcall_alarm_pending', 'true');
+      window.dispatchEvent(new CustomEvent('ALARM_TRIGGERED'));
+    } catch (e) {}
 
     // 0. Acquire emergency wake lock & start silent audio keep-alive loop
     acquireEmergencyWakeLock();
@@ -166,18 +174,47 @@ export default function DuressLockscreen({
     }, 1000);
   }, [executeSosDispatch]);
 
-  // Clean unlock handler (1234)
+  // Clean unlock handler (180499) -> Drops user straight onto phone's REAL Home Screen!
   const executeCleanUnlock = useCallback(() => {
+    try {
+      localStorage.removeItem('silentcall_alarm_pending');
+      window.dispatchEvent(new CustomEvent('ALARM_DISARMED'));
+    } catch (e) {}
+
     releaseEmergencyWakeLock();
     setScreenState('UNLOCKED');
+
+    // Subtle tactile unlock pulse
+    if ('vibrate' in navigator) {
+      try { navigator.vibrate(30); } catch (e) {}
+    }
+
+    // Direct launch of Android Home Screen (Poco Launcher) & move app to background
+    if (typeof window !== 'undefined' && window.Capacitor) {
+      try {
+        if (window.Capacitor.isPluginAvailable && window.Capacitor.isPluginAvailable('BackgroundGuard')) {
+          window.Capacitor.Plugins.BackgroundGuard.goToHomeScreen();
+        } else if (window.Capacitor.Plugins?.App?.minimizeApp) {
+          window.Capacitor.Plugins.App.minimizeApp();
+        }
+      } catch (e) {
+        console.warn('[Unlock] Home screen navigation fallback:', e);
+      }
+    }
+
     setTimeout(() => {
       if (onUnlock) onUnlock();
-    }, 350);
+    }, 250);
   }, [onUnlock]);
 
   // Master PIN Revocation: Aborts pending SOS or sends REVOKE_SOS to server
   const executeMasterPinRevoke = useCallback(() => {
-    console.log('[SECURITY] Master PIN 1234 verified! Aborting Duress Emergency Protocol.');
+    console.log('[SECURITY] Master PIN 180499 verified! Aborting Duress Emergency Protocol.');
+
+    try {
+      localStorage.removeItem('silentcall_alarm_pending');
+      window.dispatchEvent(new CustomEvent('ALARM_DISARMED'));
+    } catch (e) {}
 
     // Release wake lock
     releaseEmergencyWakeLock();
@@ -234,24 +271,31 @@ export default function DuressLockscreen({
     setAbortPin('');
     setScreenState('UNLOCKED');
 
+    // On physical smartphone: minimize app to reveal real phone launcher / home screen!
+    if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+      import('@capacitor/app').then(({ App }) => {
+        App.minimizeApp().catch(() => {});
+      }).catch(() => {});
+    }
+
     setTimeout(() => {
       if (onUnlock) onUnlock();
     }, 400);
   }, [onRevokeSOS, onUnlock, ws]);
 
-  // Handle standard lockscreen digit presses
+  // Handle standard lockscreen digit presses (6-digit Master PIN 180499)
   const handleDigitPress = (digit) => {
-    if (screenState !== 'LOCKED' || pin.length >= 4) return;
+    if (screenState !== 'LOCKED' || pin.length >= 6) return;
 
-    // If typing digits 1-3, or a digit other than 4th '9'
+    // If typing digits 1-5, or a digit other than 6th '9'
     const nextPin = pin + digit;
     setPin(nextPin);
 
-    if (nextPin.length === 4) {
-      if (nextPin === '1234') {
+    if (nextPin.length === 6) {
+      if (nextPin === '180499') {
         executeCleanUnlock();
       } else {
-        // If 4th digit entered without gesture guard (e.g. not 9999 or tapped quickly)
+        // Incorrect PIN or 6th digit entered without gesture guard
         setIsShaking(true);
         setTimeout(() => {
           setIsShaking(false);
@@ -261,16 +305,16 @@ export default function DuressLockscreen({
     }
   };
 
-  // Long-Press Gesture Guard Handlers on Digit '9'
+  // Long-Press Gesture Guard Handlers on 6th Digit '9'
   const handleNinePressStart = () => {
     if (screenState !== 'LOCKED') return;
 
     pressStartRef.current = Date.now();
     longPressTriggeredRef.current = false;
 
-    // If 3 digits '999' already entered, start hold tracker for 4th digit
-    if (pin === '999') {
-      setIsHoldingFourthDigit(true);
+    // If 5 digits '99999' already entered, start hold tracker for 6th digit
+    if (pin === '99999') {
+      setIsHoldingSixthDigit(true);
       setHoldProgress(0);
 
       const startTime = Date.now();
@@ -283,7 +327,7 @@ export default function DuressLockscreen({
       // Auto-trigger if held continuously for 1500ms
       longPressTimerRef.current = setTimeout(() => {
         longPressTriggeredRef.current = true;
-        setIsHoldingFourthDigit(false);
+        setIsHoldingSixthDigit(false);
         setHoldProgress(100);
         if (holdProgressIntervalRef.current) {
           clearInterval(holdProgressIntervalRef.current);
@@ -298,7 +342,7 @@ export default function DuressLockscreen({
     if (screenState !== 'LOCKED') return;
 
     const duration = Date.now() - pressStartRef.current;
-    setIsHoldingFourthDigit(false);
+    setIsHoldingSixthDigit(false);
     setHoldProgress(0);
 
     if (longPressTimerRef.current) {
@@ -313,13 +357,13 @@ export default function DuressLockscreen({
     // Already triggered by 1500ms auto-timeout
     if (longPressTriggeredRef.current) return;
 
-    // If pin is '999' and 4th digit was released too quickly (< 1500ms)
-    if (pin === '999') {
+    // If pin is '99999' and 6th digit was released too quickly (< 1500ms)
+    if (pin === '99999') {
       if (duration < 1500) {
         // Gesture Guard: Reject accidental / child sequential tapping
-        console.warn(`[SECURITY GUARD] Duress 4th digit held for only ${duration}ms (< 1500ms). Tap rejected as child/accidental trigger.`);
+        console.warn(`[SECURITY GUARD] Duress 6th digit held for only ${duration}ms (< 1500ms). Tap rejected as accidental trigger.`);
         setIsShaking(true);
-        setGestureGuardAlert('TAP REJECTED: Hold 4th "9" for 1.5s');
+        setGestureGuardAlert('TAP REJECTED: Hold 6th "9" for 1.5s');
         setTimeout(() => {
           setIsShaking(false);
           setPin('');
@@ -329,7 +373,7 @@ export default function DuressLockscreen({
         enterDuressMode();
       }
     } else {
-      // Normal digit press for 1st, 2nd, or 3rd '9'
+      // Normal digit press for 1st through 5th '9'
       handleDigitPress('9');
     }
   };
@@ -342,9 +386,9 @@ export default function DuressLockscreen({
           setPin((prev) => prev.slice(0, -1));
         } else if (e.key === 'Escape') {
           setPin('');
-        } else if (e.key === '9' && pin === '999' && !e.repeat && pressStartRef.current === 0) {
+        } else if (e.key === '9' && pin === '99999' && !e.repeat && pressStartRef.current === 0) {
           handleNinePressStart();
-        } else if (/^[0-9]$/.test(e.key) && !(e.key === '9' && pin === '999')) {
+        } else if (/^[0-9]$/.test(e.key) && !(e.key === '9' && pin === '99999')) {
           handleDigitPress(e.key);
         }
       } else if (screenState === 'REVOKE_MODAL') {
@@ -360,7 +404,7 @@ export default function DuressLockscreen({
     };
 
     const handleKeyUp = (e) => {
-      if (screenState === 'LOCKED' && e.key === '9' && pin === '999') {
+      if (screenState === 'LOCKED' && e.key === '9' && pin === '99999') {
         handleNinePressEnd();
         pressStartRef.current = 0;
       }
@@ -374,14 +418,14 @@ export default function DuressLockscreen({
     };
   }, [screenState, pin, abortPin]);
 
-  // Abort Keypad Handler in REVOKE_MODAL
+  // Abort Keypad Handler in REVOKE_MODAL (6-digit Master PIN 180499)
   const handleAbortDigit = (digit) => {
-    if (abortPin.length >= 4) return;
+    if (abortPin.length >= 6) return;
     const nextAbort = abortPin + digit;
     setAbortPin(nextAbort);
 
-    if (nextAbort.length === 4) {
-      if (nextAbort === '1234') {
+    if (nextAbort.length === 6) {
+      if (nextAbort === '180499') {
         executeMasterPinRevoke();
       } else {
         // Wrong Master PIN: immediate return to blackout screen to protect stealth
@@ -439,8 +483,8 @@ export default function DuressLockscreen({
   // ==========================================
   if (screenState === 'REVOKE_MODAL') {
     return (
-      <div className="w-full max-w-sm mx-auto select-none">
-        <div className="w-full h-[620px] bg-neutral-950 rounded-[46px] p-6 shadow-2xl border-4 border-neutral-900 relative overflow-hidden flex flex-col items-center justify-between">
+      <div className={`w-full select-none ${isNative ? 'h-full min-h-screen bg-black' : 'max-w-sm mx-auto'}`}>
+        <div className={`w-full bg-neutral-950 relative overflow-hidden flex flex-col items-center justify-between ${isNative ? 'h-full min-h-screen p-6' : 'h-[620px] rounded-[46px] p-6 shadow-2xl border-4 border-neutral-900'}`}>
           
           {/* Subtle Header */}
           <div className="w-full pt-4 flex flex-col items-center text-center">
@@ -451,7 +495,7 @@ export default function DuressLockscreen({
               Master Passcode Verification
             </h3>
             <p className="text-[11px] text-neutral-500 mt-1 max-w-[220px]">
-              Enter Master PIN <span className="font-mono text-neutral-400">1234</span> to abort emergency dispatch
+              Enter Master PIN <span className="font-mono text-neutral-400">180499</span> to abort emergency dispatch
             </p>
 
             {/* Grace Window Status Banner */}
@@ -469,9 +513,9 @@ export default function DuressLockscreen({
             </div>
           </div>
 
-          {/* 4 PIN Dots */}
+          {/* 6 PIN Dots */}
           <div className={`flex justify-center items-center gap-4 my-2 ${isAbortShaking ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}>
-            {[0, 1, 2, 3].map((index) => {
+            {[0, 1, 2, 3, 4, 5].map((index) => {
               const isFilled = abortPin.length > index;
               return (
                 <div
@@ -538,8 +582,8 @@ export default function DuressLockscreen({
   // ==========================================
   if (screenState === 'BLACKOUT') {
     return (
-      <div className="w-full max-w-sm mx-auto select-none">
-        <div className="w-full h-[620px] bg-black rounded-[46px] p-6 shadow-2xl border-4 border-neutral-900 relative overflow-hidden flex flex-col items-center justify-between">
+      <div className={`w-full select-none ${isNative ? 'h-full min-h-screen bg-black' : 'max-w-sm mx-auto'}`}>
+        <div className={`w-full bg-black relative overflow-hidden flex flex-col items-center justify-between ${isNative ? 'h-full min-h-screen p-6' : 'h-[620px] rounded-[46px] p-6 shadow-2xl border-4 border-neutral-900'}`}>
           
           {/* Secret Escape Hatch Hitzone in Top Right */}
           <div
@@ -612,8 +656,8 @@ export default function DuressLockscreen({
   // ==========================================
   if (screenState === 'SHUTTING_DOWN') {
     return (
-      <div className="w-full max-w-sm mx-auto select-none">
-        <div className="w-full h-[620px] bg-black rounded-[46px] p-6 shadow-2xl border-4 border-neutral-900 relative overflow-hidden flex flex-col items-center justify-center">
+      <div className={`w-full select-none ${isNative ? 'h-full min-h-screen bg-black' : 'max-w-sm mx-auto'}`}>
+        <div className={`w-full bg-black relative overflow-hidden flex flex-col items-center justify-center ${isNative ? 'h-full min-h-screen p-6' : 'h-[620px] rounded-[46px] p-6 shadow-2xl border-4 border-neutral-900'}`}>
           
           {/* Secret corner abort hitzone even during shutdown */}
           <div
@@ -642,8 +686,8 @@ export default function DuressLockscreen({
   // RENDER: [LOCKED] Standard Lockscreen
   // ==========================================
   return (
-    <div className="flex flex-col items-center justify-center w-full max-w-sm mx-auto select-none">
-      <div className="w-full bg-gradient-to-b from-neutral-900 via-neutral-950 to-black rounded-[46px] p-6 shadow-2xl border-4 border-neutral-800 relative overflow-hidden backdrop-blur-2xl">
+    <div className={`flex flex-col items-center justify-center w-full select-none ${isNative ? 'h-full min-h-screen bg-black' : 'max-w-sm mx-auto'}`}>
+      <div className={`w-full relative overflow-hidden flex flex-col justify-between ${isNative ? 'h-full min-h-screen p-6 bg-gradient-to-b from-neutral-950 via-black to-black' : 'bg-gradient-to-b from-neutral-900 via-neutral-950 to-black rounded-[46px] p-6 shadow-2xl border-4 border-neutral-800 backdrop-blur-2xl'}`}>
         
         {/* Dynamic Island with Interactive Proximity Test Notch */}
         <div className="flex justify-between items-center mb-6 px-2 text-white text-xs font-medium">
@@ -695,9 +739,9 @@ export default function DuressLockscreen({
             <span className="text-[11px] text-amber-400 font-medium tracking-wide animate-pulse">
               {gestureGuardAlert}
             </span>
-          ) : isHoldingFourthDigit ? (
+          ) : isHoldingSixthDigit ? (
             <span className="text-[11px] text-rose-400 font-mono animate-pulse">
-              Holding 4th digit: {holdProgress}% (Hold 1.5s)
+              Holding 6th digit: {holdProgress}% (Hold 1.5s)
             </span>
           ) : (
             <p className="text-xs text-neutral-300 font-medium tracking-wide">
@@ -706,11 +750,11 @@ export default function DuressLockscreen({
           )}
         </div>
 
-        {/* 4 PIN Dots */}
-        <div className={`flex justify-center items-center gap-4 mb-6 ${isShaking ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}>
-          {[0, 1, 2, 3].map((index) => {
+        {/* 6 PIN Dots */}
+        <div className={`flex justify-center items-center gap-3.5 mb-6 ${isShaking ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}>
+          {[0, 1, 2, 3, 4, 5].map((index) => {
             const isFilled = pin.length > index;
-            const isTargetFourth = index === 3 && isHoldingFourthDigit;
+            const isTargetSixth = index === 5 && isHoldingSixthDigit;
             return (
               <div
                 key={index}
@@ -721,12 +765,12 @@ export default function DuressLockscreen({
                       : isShaking
                       ? 'bg-rose-500 scale-110 shadow-lg shadow-rose-500/50'
                       : 'bg-white scale-105'
-                    : isTargetFourth
+                    : isTargetSixth
                     ? 'border-2 border-rose-500 bg-rose-500/40 scale-110'
                     : 'border-2 border-neutral-500/80 bg-transparent'
                 }`}
               >
-                {isTargetFourth && (
+                {isTargetSixth && (
                   <span
                     className="absolute inset-0 rounded-full border border-rose-400 animate-ping opacity-75"
                   />
@@ -759,13 +803,13 @@ export default function DuressLockscreen({
                 onTouchStart={isNine ? handleNinePressStart : undefined}
                 onTouchEnd={isNine ? handleNinePressEnd : undefined}
                 className={`w-16 h-16 rounded-full text-white flex flex-col items-center justify-center transition-all border backdrop-blur-md active:scale-95 relative overflow-hidden ${
-                  isNine && isHoldingFourthDigit
+                  isNine && isHoldingSixthDigit
                     ? 'bg-rose-900/80 border-rose-500 shadow-lg shadow-rose-950/80'
                     : 'bg-neutral-800/60 active:bg-neutral-600/60 border-neutral-700/30'
                 }`}
               >
-                {/* Hold Progress Background Fill for 4th digit 9 */}
-                {isNine && isHoldingFourthDigit && (
+                {/* Hold Progress Background Fill for 6th digit 9 */}
+                {isNine && isHoldingSixthDigit && (
                   <div
                     className="absolute bottom-0 left-0 right-0 bg-rose-600/40 transition-all duration-75 pointer-events-none"
                     style={{ height: `${holdProgress}%` }}

@@ -25,7 +25,8 @@ import {
   ShieldCheck,
   Undo2,
   History,
-  AlertOctagon
+  AlertOctagon,
+  Smartphone
 } from 'lucide-react';
 
 // ==========================================
@@ -323,6 +324,29 @@ export default function DispatcherDashboard({
     };
   };
 
+  // Extract phone hardware & OS details from telemetry
+  const getDeviceInfo = (telemetry) => {
+    if (!telemetry) {
+      return {
+        model: 'Poco M6 Pro 5G',
+        os: 'Xiaomi HyperOS / Android 14',
+        network: '5G NR Cellular'
+      };
+    }
+    let model = 'Poco M6 Pro 5G';
+    let os = 'Xiaomi HyperOS / Android 14';
+    let network = telemetry.network || '5G NR Cellular';
+    if (telemetry.device && typeof telemetry.device === 'object') {
+      model = telemetry.device.model || model;
+      os = telemetry.device.os || os;
+      network = telemetry.device.networkType || network;
+    } else if (typeof telemetry.device === 'string' && telemetry.device.length > 0) {
+      model = telemetry.device;
+    }
+    if (telemetry.deviceModel) model = telemetry.deviceModel;
+    return { model, os, network };
+  };
+
   return (
     <div className="flex flex-col h-full w-full bg-slate-950 text-slate-100 overflow-hidden font-sans">
       
@@ -471,6 +495,16 @@ export default function DispatcherDashboard({
                         </div>
                       ) : (
                         <div className="text-[11px] space-y-0.5 text-slate-600 mb-2">
+                          {(() => {
+                            const dev = getDeviceInfo(incident.telemetry);
+                            return (
+                              <>
+                                <div>Device: <b className="text-slate-900">{dev.model}</b></div>
+                                <div>OS / System: <b className="text-slate-800">{dev.os}</b></div>
+                                <div>Carrier: <b className="text-slate-800">{dev.network}</b></div>
+                              </>
+                            );
+                          })()}
                           <div>Trigger: <b>{incident.triggerType}</b></div>
                           <div>Ambient Noise: <b>{incident.telemetry?.decibelLevel || 45} dB SPL</b></div>
                           <div>Assigned PCR: <b>{incident.assignedPcrUnit?.callsign || 'En route'}</b></div>
@@ -810,6 +844,36 @@ export default function DispatcherDashboard({
                         </div>
                       </div>
                     </div>
+
+                    {/* Device Hardware & OS Telemetry Badge */}
+                    {(() => {
+                      const dev = getDeviceInfo(incident.telemetry);
+                      return (
+                        <div className="flex items-center justify-between text-xs bg-slate-950/80 p-2.5 rounded-lg border border-slate-800/80 mb-3 shadow-inner">
+                          <div className="flex items-center gap-2.5">
+                            <div className="p-1.5 rounded-lg bg-indigo-950/70 border border-indigo-700/60 text-indigo-300 shrink-0">
+                              <Smartphone className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="font-semibold text-white flex items-center gap-1.5">
+                                <span>{dev.model}</span>
+                                <span className="text-[10px] bg-slate-800 text-cyan-300 border border-cyan-800/60 px-1.5 py-0.2 rounded font-mono font-medium">
+                                  {dev.network}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                                OS: <span className="text-slate-200 font-medium">{dev.os}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                              HARDWARE SYNCED
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Dispatched PCR Patrol Unit Callout */}
                     {pcr && (

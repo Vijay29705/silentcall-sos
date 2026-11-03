@@ -12,8 +12,9 @@ const DB_NAME = 'SilentCallNetworkDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'pending_transmissions';
 
+const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
 const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) ||
-  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : (typeof window !== 'undefined' ? `http://${window.location.hostname || 'localhost'}:5000` : ''));
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : (isNative ? 'https://silentcall-sos.onrender.com' : (typeof window !== 'undefined' ? `http://${window.location.hostname || 'localhost'}:5000` : '')));
 
 /**
  * Open or create the IndexedDB store for pending emergency transmissions

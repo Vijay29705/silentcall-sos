@@ -1,0 +1,15 @@
+{
+  "appId": "com.techsquad.silentcall",
+  "appName": "Calculator",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "cleartext": true,
+    "allowNavigation": ["silentcall-sos.onrender.com"]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true
+  }
+}
+

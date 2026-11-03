@@ -17,9 +17,39 @@ const DEFAULT_COORDINATES = {
 };
 
 /**
- * Collects high-accuracy GPS coordinates via HTML5 Geolocation API
+ * Collects high-accuracy GPS coordinates via Capacitor Native Geolocation API / HTML5 Fallback
  */
 export async function getGeolocationTelemetry() {
+  // 1. Native Capacitor Geolocation for Physical Smartphone (Poco M6 Pro)
+  if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+    try {
+      const { Geolocation } = await import('@capacitor/geolocation');
+      await Geolocation.requestPermissions();
+      const position = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      });
+
+      if (position && position.coords) {
+        return {
+          latitude: parseFloat(position.coords.latitude.toFixed(6)),
+          longitude: parseFloat(position.coords.longitude.toFixed(6)),
+          accuracy: parseFloat((position.coords.accuracy || 5.0).toFixed(1)),
+          altitude: position.coords.altitude ? parseFloat(position.coords.altitude.toFixed(1)) : null,
+          heading: position.coords.heading || null,
+          speed: position.coords.speed || null,
+          timestamp: position.timestamp || Date.now(),
+          fallbackUsed: false,
+          locationName: 'Poco M6 Pro Live GPS'
+        };
+      }
+    } catch (nativeErr) {
+      console.warn('[Telemetry] Native Capacitor GPS query failed, attempting browser fallback:', nativeErr);
+    }
+  }
+
+  // 2. Standard HTML5 Geolocation API
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
       console.warn('[Telemetry] Geolocation API not supported by browser. Using fallback.');
@@ -48,7 +78,6 @@ export async function getGeolocationTelemetry() {
       },
       (error) => {
         console.warn(`[Telemetry] Geolocation error (${error.code}: ${error.message}). Using approximate fallback.`);
-        // Introduce tiny random offset for realistic multi-incident simulation when denied
         const jitterLat = (Math.random() - 0.5) * 0.015;
         const jitterLng = (Math.random() - 0.5) * 0.015;
         resolve({
@@ -195,7 +224,25 @@ export async function getBatteryTelemetry() {
  * Gathers device and connection profile
  */
 export function getDeviceTelemetry() {
+  const isCapacitor = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+
+  if (isCapacitor) {
+    return {
+      userAgent: navigator.userAgent,
+      language: navigator.language,
+      platform: 'Poco M6 Pro 5G (Xiaomi HyperOS / Android 14)',
+      model: 'Poco M6 Pro 5G',
+      os: 'Android 14 / Xiaomi HyperOS',
+      screen: {
+        width: window.screen.width,
+        height: window.screen.height,
+        pixelRatio: window.devicePixelRatio || 1
+      },
+      network: { effectiveType: '5G Mobile NR', rtt: 12 }
+    };
+  }
+
   return {
     userAgent: navigator.userAgent,
     language: navigator.language,

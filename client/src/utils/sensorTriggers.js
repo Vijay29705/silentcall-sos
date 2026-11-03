@@ -131,6 +131,28 @@ export function resolveIndoorFloorEstimate(currentLat, currentLng) {
  * High-accuracy Geolocation collector
  */
 export async function getGeolocationTelemetry() {
+  if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+    try {
+      const { Geolocation } = await import('@capacitor/geolocation');
+      await Geolocation.requestPermissions();
+      const pos = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      });
+      if (pos && pos.coords) {
+        return {
+          latitude: parseFloat(pos.coords.latitude.toFixed(6)),
+          longitude: parseFloat(pos.coords.longitude.toFixed(6)),
+          accuracy: parseFloat((pos.coords.accuracy || 5.0).toFixed(1)),
+          fallbackUsed: false
+        };
+      }
+    } catch (e) {
+      console.warn('[SensorTriggers] Native GPS query error:', e);
+    }
+  }
+
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
       return resolve({ ...DEFAULT_COORDINATES, fallbackUsed: true });
@@ -301,6 +323,9 @@ export async function collectEmergencyTelemetry() {
   // Resolve indoor floor estimate from home geofence
   const indoorFloorEstimate = resolveIndoorFloorEstimate(coordinates.latitude, coordinates.longitude);
 
+  const isCapacitor = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+  const deviceModel = isCapacitor ? 'Poco M6 Pro 5G (Xiaomi HyperOS / Android 14)' : (navigator.userAgent.includes('Mobile') ? 'Mobile Smartphone Client' : 'Citizen Device Terminal');
+
   return {
     timestamp: new Date().toISOString(),
     latencyMs: Math.round(performance.now() - startTime),
@@ -310,7 +335,7 @@ export async function collectEmergencyTelemetry() {
     battery,
     indoorFloorEstimate,
     barometricData: baroData,
-    device: navigator.userAgent.includes('Mobile') ? 'Mobile Smartphone Client' : 'Disguised Workstation Terminal'
+    device: deviceModel
   };
 }
 

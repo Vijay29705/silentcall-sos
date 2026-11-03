@@ -87,13 +87,30 @@ async function handleVisibilityChange() {
 }
 
 /**
- * Acquire emergency wake lock across W3C Screen Wake Lock and iOS WebKit audio loop fallback
+ * Acquire emergency wake lock across W3C Screen Wake Lock, Native Capacitor KeepAwake,
+ * and iOS WebKit audio loop fallback
  */
 export async function acquireEmergencyWakeLock() {
   if (isAcquiring) return;
   isAcquiring = true;
 
-  console.log('[WakeLock] Initiating dual-tier OS background throttling guard...');
+  console.log('[WakeLock] Initiating multi-tier OS background throttling guard...');
+
+  // Native Capacitor Guard (Android HyperOS / iOS Native)
+  if (typeof window !== 'undefined' && window.Capacitor) {
+    try {
+      if (window.Capacitor.isPluginAvailable('KeepAwake')) {
+        await window.Capacitor.Plugins.KeepAwake.keepAwake();
+        console.log('[WakeLock] Native Capacitor KeepAwake active.');
+      }
+      if (window.Capacitor.isPluginAvailable('BackgroundGuard')) {
+        await window.Capacitor.Plugins.BackgroundGuard.startForegroundService();
+        console.log('[WakeLock] Native BackgroundGuard foreground service initiated.');
+      }
+    } catch (capErr) {
+      console.warn('[WakeLock] Native keep-awake plugin error:', capErr.message);
+    }
+  }
 
   // Tier 1: W3C Screen Wake Lock API
   if ('wakeLock' in navigator) {
@@ -150,6 +167,15 @@ export async function acquireEmergencyWakeLock() {
  */
 export async function releaseEmergencyWakeLock() {
   console.log('[WakeLock] Releasing emergency wake lock & background keep-alive hooks.');
+
+  // Release Native Capacitor Guard
+  if (typeof window !== 'undefined' && window.Capacitor) {
+    try {
+      if (window.Capacitor.isPluginAvailable('KeepAwake')) {
+        await window.Capacitor.Plugins.KeepAwake.allowSleep();
+      }
+    } catch (e) {}
+  }
 
   // Release W3C Wake Lock
   if (wakeLockSentinel !== null) {

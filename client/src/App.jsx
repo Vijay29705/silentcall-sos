@@ -27,16 +27,21 @@ import {
 } from 'lucide-react';
 
 // Production & Local Dynamic API/WS Configuration
+const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+const isLocal = typeof window !== 'undefined' && (
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1' ||
+  window.location.hostname.startsWith('192.168.') ||
+  window.location.hostname.startsWith('10.')
+);
 const defaultProto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const defaultHost = typeof window !== 'undefined' ? (window.location.hostname || 'localhost') : 'localhost';
-export const WS_URL = import.meta.env.VITE_WS_URL || `${defaultProto}//${defaultHost}:5000`;
-export const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : `http://${defaultHost}:5000`);
+export const WS_URL = import.meta.env.VITE_WS_URL || (isLocal ? `${defaultProto}//${defaultHost}:5000` : 'wss://silentcall-sos.onrender.com');
+export const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : (isLocal ? `http://${defaultHost}:5000` : 'https://silentcall-sos.onrender.com'));
 
 export default function App() {
-  // View Switcher Tabs: 'SPLIT' (Side-by-Side Demo) | 'PHONE' (Victim Mobile Device) | 'DASHBOARD' (112 Dispatcher Console)
-  const [activeTab, setActiveTab] = useState('SPLIT');
-
-  // Mobile Device State Machine: 'LOCKSCREEN' -> (1234) -> 'CALCULATOR'
+  // Mobile Device State Machine: Defaults to LOCKSCREEN so it acts as the device lock guard
+  const [activeTab, setActiveTab] = useState(isNative ? 'PHONE' : 'SPLIT');
   const [mobileScreenState, setMobileScreenState] = useState('LOCKSCREEN');
 
   const [incidents, setIncidents] = useState([]);
@@ -49,6 +54,22 @@ export default function App() {
 
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+
+  // Auto-request GPS Location Permissions & Listen for Screen Wake Lock
+  useEffect(() => {
+    if (isNative) {
+      // Prompt Android OS Geolocation Permission Dialog immediately on launch
+      import('@capacitor/geolocation').then(({ Geolocation }) => {
+        Geolocation.requestPermissions().then((status) => {
+          console.log('[GPS] Geolocation permission status:', status);
+        }).catch((err) => console.warn('[GPS] Geolocation request failed:', err));
+      }).catch(() => {});
+    }
+
+    const handleShowLock = () => setMobileScreenState('LOCKSCREEN');
+    window.addEventListener('SHOW_LOCKSCREEN', handleShowLock);
+    return () => window.removeEventListener('SHOW_LOCKSCREEN', handleShowLock);
+  }, []);
 
   // WebSocket broker connection
   const connectWebSocket = useCallback(() => {
@@ -270,6 +291,43 @@ export default function App() {
     showNotification('🔄 Demo Reset: Device locked & baseline incidents restored');
   };
 
+  // Pure Native Mobile Viewport (Zero Demo UI / Zero Headers)
+  if (isNative) {
+    return (
+      <div className="h-screen w-screen bg-black text-white overflow-hidden flex flex-col justify-center items-center select-none">
+        {mobileScreenState === 'LOCKSCREEN' ? (
+          <DuressLockscreen
+            onUnlock={() => setMobileScreenState('CALCULATOR')}
+            triggerEmergency={triggerEmergency}
+            onRevokeSOS={(reason) => {
+              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(
+                  JSON.stringify({
+                    type: 'REVOKE_SOS',
+                    payload: { id: activeIncidentId, reason: reason || 'Parent Master PIN Abort' }
+                  })
+                );
+              }
+              heartbeatManager.stop();
+              setActiveIncidentId(null);
+            }}
+            onSimulateDeviceDestroy={handleSimulateDeviceDestroy}
+            onResetDemo={handleResetDemo}
+            isDeviceDestroyed={isDeviceDestroyed}
+            ws={wsRef.current}
+          />
+        ) : (
+          <CovertCalculator
+            onSendSOS={() => triggerEmergency('COVERT_CALCULATOR_112')}
+            isConnected={isConnected}
+            showDebugOverlay={false}
+            onLock={() => setMobileScreenState('LOCKSCREEN')}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
       
@@ -295,44 +353,12 @@ export default function App() {
           </button>
         </div>
 
-        {/* View Switcher Tabs */}
-        <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
-          <button
-            onClick={() => setActiveTab('SPLIT')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'SPLIT'
-                ? 'bg-rose-600 text-white shadow-md shadow-rose-950/50'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Columns className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Side-by-Side Examiner Demo</span>
-            <span className="sm:hidden">Split Demo</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('PHONE')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'PHONE'
-                ? 'bg-rose-600 text-white shadow-md shadow-rose-950/50'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-            <span>Victim Mobile Device</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('DASHBOARD')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'DASHBOARD'
-                ? 'bg-rose-600 text-white shadow-md shadow-rose-950/50'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <LayoutDashboard className="w-3.5 h-3.5" />
-            <span>112 Dispatcher Console</span>
-          </button>
+        {/* Dedicated 112 Dispatcher Console Header Tag */}
+        <div className="flex items-center gap-2 bg-slate-950 px-3.5 py-1.5 rounded-xl border border-slate-800 shadow-inner">
+          <LayoutDashboard className="w-4 h-4 text-rose-500" />
+          <span className="text-xs font-bold tracking-wide text-slate-200 font-mono">
+            112 CENTRAL DISPATCHER &amp; INVESTIGATION CONSOLE
+          </span>
         </div>
 
         {/* Quick Controls & Status */}
@@ -436,131 +462,15 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Presentation Viewport */}
+      {/* Main Presentation Viewport: Dedicated 112 Dispatcher Console for Web */}
       <main className="flex-1 overflow-hidden relative">
-        {/* Split View (Side-by-Side Examiner Demo) */}
-        {activeTab === 'SPLIT' && (
-          <div className="h-full w-full flex flex-col md:flex-row overflow-hidden">
-            
-            {/* Left: Simulated Citizen Mobile Device */}
-            <div className="w-full md:w-[420px] lg:w-[460px] h-full bg-slate-950 border-r border-slate-800 flex flex-col items-center justify-center p-4 overflow-y-auto custom-scrollbar">
-              
-              {/* State bar & Lock toggle */}
-              <div className="w-full max-w-sm flex items-center justify-between px-2 mb-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    Device Mode:
-                  </span>
-                  <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                    mobileScreenState === 'LOCKSCREEN'
-                      ? 'bg-amber-950 text-amber-300 border-amber-800'
-                      : 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                  }`}>
-                    {mobileScreenState}
-                  </span>
-                </div>
-
-                {mobileScreenState === 'CALCULATOR' && (
-                  <button
-                    onClick={() => setMobileScreenState('LOCKSCREEN')}
-                    className="text-[11px] flex items-center gap-1 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-2 py-0.5 rounded border border-slate-700 transition-colors"
-                  >
-                    <Lock className="w-3 h-3 text-amber-400" />
-                    Lock Phone
-                  </button>
-                )}
-              </div>
-
-              {/* RENDER ACTIVE MOBILE COMPONENT */}
-              {mobileScreenState === 'LOCKSCREEN' ? (
-                <DuressLockscreen
-                  onUnlock={() => setMobileScreenState('CALCULATOR')}
-                  triggerEmergency={triggerEmergency}
-                  onRevokeSOS={(reason) => {
-                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                      wsRef.current.send(
-                        JSON.stringify({
-                          type: 'REVOKE_SOS',
-                          payload: { id: activeIncidentId, reason: reason || 'Parent Master PIN Abort' }
-                        })
-                      );
-                    }
-                    heartbeatManager.stop();
-                    setActiveIncidentId(null);
-                  }}
-                  onSimulateDeviceDestroy={handleSimulateDeviceDestroy}
-                  onResetDemo={handleResetDemo}
-                  isDeviceDestroyed={isDeviceDestroyed}
-                  ws={wsRef.current}
-                />
-              ) : (
-                <CovertCalculator
-                  onSendSOS={() => triggerEmergency('COVERT_CALCULATOR_112')}
-                  isConnected={isConnected}
-                  showDebugOverlay={true}
-                />
-              )}
-            </div>
-
-            {/* Right: 112 Central Dispatch Console */}
-            <div className="flex-1 h-full overflow-hidden flex flex-col">
-              <DispatcherDashboard
-                incidents={incidents}
-                pcrVehicles={pcrVehicles}
-                onResolveIncident={handleResolveIncident}
-                onSimulateDemo={() => triggerEmergency('COVERT_CALCULATOR_112')}
-                isConnected={isConnected}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Citizen Device Only View */}
-        {activeTab === 'PHONE' && (
-          <div className="h-full w-full flex items-center justify-center bg-black p-4 overflow-y-auto">
-            {mobileScreenState === 'LOCKSCREEN' ? (
-              <DuressLockscreen
-                onUnlock={() => setMobileScreenState('CALCULATOR')}
-                triggerEmergency={triggerEmergency}
-                onRevokeSOS={(reason) => {
-                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                    wsRef.current.send(
-                      JSON.stringify({
-                        type: 'REVOKE_SOS',
-                        payload: { id: activeIncidentId, reason: reason || 'Parent Master PIN Abort' }
-                      })
-                    );
-                  }
-                  heartbeatManager.stop();
-                  setActiveIncidentId(null);
-                }}
-                onSimulateDeviceDestroy={handleSimulateDeviceDestroy}
-                onResetDemo={handleResetDemo}
-                isDeviceDestroyed={isDeviceDestroyed}
-                ws={wsRef.current}
-              />
-            ) : (
-              <CovertCalculator
-                onSendSOS={() => triggerEmergency('COVERT_CALCULATOR_112')}
-                isConnected={isConnected}
-                showDebugOverlay={true}
-              />
-            )}
-          </div>
-        )}
-
-        {/* 112 Dispatcher Console Only View */}
-        {activeTab === 'DASHBOARD' && (
-          <div className="h-full w-full overflow-hidden">
-            <DispatcherDashboard
-              incidents={incidents}
-              pcrVehicles={pcrVehicles}
-              onResolveIncident={handleResolveIncident}
-              onSimulateDemo={() => triggerEmergency('COVERT_CALCULATOR_112')}
-              isConnected={isConnected}
-            />
-          </div>
-        )}
+        <DispatcherDashboard
+          incidents={incidents}
+          pcrVehicles={pcrVehicles}
+          onResolveIncident={handleResolveIncident}
+          onSimulateDemo={() => triggerEmergency('COVERT_CALCULATOR_112')}
+          isConnected={isConnected}
+        />
       </main>
     </div>
   );
