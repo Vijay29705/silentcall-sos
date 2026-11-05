@@ -17,5 +17,9 @@
     "triage-engine"
   ],
   "author": "B.Tech IT Capstone Project",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "mammoth": "^1.13.0",
+    "pdf-parse": "^2.4.5"
+  }
 }

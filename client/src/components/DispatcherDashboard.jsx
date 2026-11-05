@@ -196,6 +196,8 @@ export default function DispatcherDashboard({
   const [showCadModal, setShowCadModal] = useState(null);
   const [audioPingsEnabled, setAudioPingsEnabled] = useState(true);
   const [selectedMapProvider, setSelectedMapProvider] = useState('GOOGLE_ROADMAP');
+  const [mobileTab, setMobileTab] = useState('MAP');
+  const [showLegend, setShowLegend] = useState(false);
 
   // Local synced incident list to support instant WebSocket / event reaction
   const [incidentList, setIncidentList] = useState(incidents);
@@ -263,27 +265,49 @@ export default function DispatcherDashboard({
   const currentFocus = selectedIncident || activeIncidents[0] || incidentList[0];
   const centerCoords = currentFocus?.coordinates || { latitude: 13.0550, longitude: 80.2600 };
 
-  // Dispatch siren audio: Muted for revoked incidents
+  // Dispatch siren audio: Muted for revoked incidents & silent on initial mount
+  const isInitialLoadRef = useRef(true);
+  const prevActiveCountRef = useRef(activeIncidents.length);
+
   useEffect(() => {
-    // Siren only fires for genuine active emergencies
-    if (!audioPingsEnabled || activeIncidents.length === 0) return;
+    // Avoid triggering AudioContext on page load/initial state before user interaction
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false;
+      prevActiveCountRef.current = activeIncidents.length;
+      return;
+    }
+
+    const hasNewIncomingEmergency = activeIncidents.length > prevActiveCountRef.current;
+    prevActiveCountRef.current = activeIncidents.length;
+
+    if (!audioPingsEnabled || !hasNewIncomingEmergency) return;
 
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(800, ctx.currentTime);
-        osc.frequency.linearRampToValueAtTime(400, ctx.currentTime + 0.35);
-        gain.gain.setValueAtTime(0.06, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.35);
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+
+      // Only attempt to synthesize audio if browser allows autoplay
+      if (ctx.state === 'suspended') {
+        ctx.close().catch(() => {});
+        return;
       }
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(800, ctx.currentTime);
+      osc.frequency.linearRampToValueAtTime(400, ctx.currentTime + 0.35);
+      gain.gain.setValueAtTime(0.06, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+
+      setTimeout(() => {
+        try { ctx.close(); } catch (e) {}
+      }, 500);
     } catch (e) {}
   }, [activeIncidents.length, audioPingsEnabled]);
 
@@ -351,33 +375,33 @@ export default function DispatcherDashboard({
     <div className="flex flex-col h-full w-full bg-slate-950 text-slate-100 overflow-hidden font-sans">
       
       {/* 112 Central Header */}
-      <header className="bg-slate-900 border-b border-slate-800 px-6 py-3 flex flex-wrap items-center justify-between gap-4 z-10 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-700 via-rose-600 to-rose-500 flex items-center justify-center shadow-lg shadow-rose-950/50">
-              <ShieldAlert className="w-6 h-6 text-white" />
+      <header className="bg-slate-900 border-b border-slate-800 px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-3 z-10 shrink-0">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <div className="relative shrink-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-rose-700 via-rose-600 to-rose-500 flex items-center justify-center shadow-lg shadow-rose-950/50">
+              <ShieldAlert className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
             </div>
             {activeIncidents.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-rose-500 rounded-full border-2 border-slate-900 animate-ping"></span>
+              <span className="absolute -top-1 -right-1 w-3 h-3 sm:w-3.5 sm:h-3.5 bg-rose-500 rounded-full border-2 border-slate-900 animate-ping"></span>
             )}
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-white tracking-tight">
-                112 POLICE EMERGENCY TRIAGE CONSOLE
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <h1 className="text-xs sm:text-base font-bold text-white tracking-tight truncate">
+                112 POLICE TRIAGE CONSOLE
               </h1>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800 font-semibold">
-                C-DAC ERSS CAD
+              <span className="text-[9px] sm:text-[10px] font-mono px-1.5 sm:px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800 font-semibold shrink-0">
+                ERSS CAD
               </span>
             </div>
-            <p className="text-xs text-slate-400">
+            <p className="hidden sm:block text-xs text-slate-400 truncate">
               Zero-Audio Ingestion • Live OSM Reverse Geocoding • Accidental Trigger Revocation Guard
             </p>
           </div>
         </div>
 
         {/* System Status Indicators */}
-        <div className="flex items-center gap-5 text-xs">
+        <div className="flex items-center gap-2 sm:gap-5 text-xs shrink-0">
           <div className="hidden md:flex flex-col items-end">
             <span className="text-slate-400 text-[11px]">False-Alarm Guard</span>
             <span className="text-amber-400 font-mono font-medium flex items-center gap-1">
@@ -392,14 +416,14 @@ export default function DispatcherDashboard({
               isConnected ? 'text-emerald-400' : 'text-amber-400'
             }`}>
               <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              {isConnected ? 'NODE:5000 SYNCED' : 'RECONNECTING...'}
+              {isConnected ? 'SYNCED' : 'RECONNECTING...'}
             </span>
           </div>
 
-          <div className="flex items-center gap-2 border-l border-slate-800 pl-4">
+          <div className="flex items-center gap-1.5 sm:gap-2 sm:border-l sm:border-slate-800 sm:pl-4">
             <button
               onClick={() => setAudioPingsEnabled(!audioPingsEnabled)}
-              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition-colors"
+              className="p-1.5 sm:p-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition-colors"
               title={audioPingsEnabled ? "Disable siren klaxon" : "Enable siren klaxon"}
             >
               {audioPingsEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4" />}
@@ -408,23 +432,51 @@ export default function DispatcherDashboard({
             {onSimulateDemo && (
               <button
                 onClick={onSimulateDemo}
-                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-medium text-xs flex items-center gap-1.5 shadow-md shadow-rose-950/50 transition-colors"
+                className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-medium text-xs flex items-center gap-1 shadow-md shadow-rose-950/50 transition-colors active:scale-95 touch-manipulation"
               >
                 <Radio className="w-3.5 h-3.5 animate-pulse" />
-                Simulate SOS
+                <span className="hidden xs:inline sm:inline">Simulate</span> SOS
               </button>
             )}
           </div>
         </div>
       </header>
 
+      {/* Mobile Tab Switcher: Tactical Map vs Incident Queue (screens < lg) */}
+      <div className="flex lg:hidden w-full bg-slate-900 border-b border-slate-800 p-1.5 gap-2 px-3 shrink-0">
+        <button
+          onClick={() => setMobileTab('MAP')}
+          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
+            mobileTab === 'MAP'
+              ? 'bg-rose-600 text-white shadow-md'
+              : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+          }`}
+        >
+          <MapPin className="w-3.5 h-3.5" />
+          Tactical Map
+        </button>
+        <button
+          onClick={() => setMobileTab('QUEUE')}
+          className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
+            mobileTab === 'QUEUE'
+              ? 'bg-rose-600 text-white shadow-md'
+              : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          Incidents Queue ({activeIncidents.length})
+        </button>
+      </div>
+
       {/* Main Split: Left GIS Map & Right Incident Triage List */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
         
         {/* ======================================================== */}
         {/* LEAFLET GIS MAP CONTAINER                                */}
         {/* ======================================================== */}
-        <div className="flex-1 relative h-[48vh] lg:h-full bg-slate-950 border-r border-slate-800">
+        <div className={`flex-1 relative bg-slate-950 border-r border-slate-800 ${
+          mobileTab === 'MAP' ? 'h-full flex' : 'hidden lg:flex lg:h-full'
+        }`}>
           
           <MapContainer
             center={[centerCoords.latitude, centerCoords.longitude]}
@@ -626,30 +678,39 @@ export default function DispatcherDashboard({
           </div>
 
           {/* Floating Map Legend Overlay */}
-          <div className="absolute top-4 left-4 bg-slate-900/90 backdrop-blur-md p-3 rounded-xl border border-slate-800 shadow-xl z-[400] text-xs space-y-2 pointer-events-auto">
-            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-rose-400" />
-              GIS Tactical Legend
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-rose-500 animate-pulse border border-white"></span>
-              <span className="text-slate-300">Active Citizen Beacon</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-amber-500 border border-white"></span>
-              <span className="text-amber-300 font-medium">Revoked (False Positive)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs">💀</span>
-              <span className="text-rose-400 font-medium">Device Destroyed (&gt;8s Lost)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3.5 h-3.5 rounded bg-blue-600 flex items-center justify-center text-[9px] text-white">🚔</span>
-              <span className="text-blue-300">Dispatched PCR Patrol Van</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-emerald-500 border border-white"></span>
-              <span className="text-slate-300">Resolved Incident</span>
+          <div className="absolute top-3 left-3 z-[400] pointer-events-auto">
+            <button
+              onClick={() => setShowLegend(!showLegend)}
+              className="sm:hidden bg-slate-900/90 text-slate-300 border border-slate-700 px-2 py-1 rounded-lg text-[10px] font-mono flex items-center gap-1 shadow-lg active:scale-95 transition-all"
+            >
+              <Layers className="w-3 h-3 text-rose-400" />
+              Legend
+            </button>
+            <div className={`${showLegend ? 'block mt-1.5' : 'hidden sm:block'} bg-slate-900/95 backdrop-blur-md p-2.5 sm:p-3 rounded-xl border border-slate-800 shadow-xl text-xs space-y-1.5 sm:space-y-2`}>
+              <div className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-rose-400" />
+                GIS Tactical Legend
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-rose-500 animate-pulse border border-white"></span>
+                <span className="text-slate-300 text-[11px] sm:text-xs">Active Citizen Beacon</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-amber-500 border border-white"></span>
+                <span className="text-amber-300 font-medium text-[11px] sm:text-xs">Revoked (False Positive)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs">💀</span>
+                <span className="text-rose-400 font-medium text-[11px] sm:text-xs">Device Destroyed (&gt;8s Lost)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 rounded bg-blue-600 flex items-center justify-center text-[9px] text-white">🚔</span>
+                <span className="text-blue-300 text-[11px] sm:text-xs">Dispatched PCR Patrol Van</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-emerald-500 border border-white"></span>
+                <span className="text-slate-300 text-[11px] sm:text-xs">Resolved Incident</span>
+              </div>
             </div>
           </div>
         </div>
@@ -657,7 +718,9 @@ export default function DispatcherDashboard({
         {/* ======================================================== */}
         {/* RIGHT INCIDENT TRIAGE QUEUE & AUDIT FEED                 */}
         {/* ======================================================== */}
-        <div className="w-full lg:w-[500px] flex flex-col h-[52vh] lg:h-full bg-slate-900/70 border-t lg:border-t-0 border-slate-800">
+        <div className={`w-full lg:w-[500px] flex flex-col bg-slate-900/70 border-t lg:border-t-0 border-slate-800 ${
+          mobileTab === 'QUEUE' ? 'h-full flex pb-20' : 'hidden lg:flex lg:h-full'
+        }`}>
           
           {/* Header & Filter Controls */}
           <div className="p-4 border-b border-slate-800 bg-slate-900 flex flex-wrap items-center justify-between gap-2">

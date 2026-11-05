@@ -14,7 +14,8 @@ import {
   XCircle,
   Timer,
   ShieldCheck,
-  ChevronRight
+  ChevronRight,
+  Info
 } from 'lucide-react';
 import { registerMockProximityTap } from '../utils/sensorTriggers';
 import { acquireEmergencyWakeLock, releaseEmergencyWakeLock } from '../utils/wakeLockManager';
@@ -44,7 +45,8 @@ export default function DuressLockscreen({
   onSimulateDeviceDestroy,
   onResetDemo,
   isDeviceDestroyed = false,
-  ws = null
+  ws = null,
+  isFramed = false
 }) {
   // State Machine: 'LOCKED' | 'SHUTTING_DOWN' | 'BLACKOUT' | 'REVOKE_MODAL' | 'UNLOCKED'
   const [screenState, setScreenState] = useState('LOCKED');
@@ -53,6 +55,7 @@ export default function DuressLockscreen({
   const [pin, setPin] = useState('');
   const [isShaking, setIsShaking] = useState(false);
   const [gestureGuardAlert, setGestureGuardAlert] = useState(null);
+  const [showDemoGuide, setShowDemoGuide] = useState(false);
 
   // Holding status for 6th digit '9'
   const [isHoldingSixthDigit, setIsHoldingSixthDigit] = useState(false);
@@ -296,37 +299,46 @@ export default function DuressLockscreen({
     }, 400);
   }, [onRevokeSOS, onUnlock, ws]);
 
-  // Handle standard lockscreen digit presses (6-digit Master PIN 180499)
+  // Handle standard lockscreen digit presses (Clean PIN: 1234 or 180499)
   const handleDigitPress = (digit) => {
     if (screenState !== 'LOCKED' || pin.length >= 6) return;
 
-    // If typing digits 1-5, or a digit other than 6th '9'
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(12);
+    }
+
     const nextPin = pin + digit;
     setPin(nextPin);
 
-    if (nextPin.length === 6) {
-      if (nextPin === '180499') {
-        executeCleanUnlock();
-      } else {
-        // Incorrect PIN or 6th digit entered without gesture guard
-        setIsShaking(true);
-        setTimeout(() => {
-          setIsShaking(false);
-          setPin('');
-        }, 500);
-      }
+    // Support both 4-digit '1234' and 6-digit '180499'
+    if (nextPin === '1234' || nextPin === '180499') {
+      executeCleanUnlock();
+      return;
+    }
+
+    if (nextPin.length >= 6) {
+      // Incorrect PIN or 6th digit entered without gesture guard
+      setIsShaking(true);
+      setTimeout(() => {
+        setIsShaking(false);
+        setPin('');
+      }, 500);
     }
   };
 
-  // Long-Press Gesture Guard Handlers on 6th Digit '9'
+  // Long-Press Gesture Guard Handlers on trigger digit '9'
   const handleNinePressStart = () => {
     if (screenState !== 'LOCKED') return;
+
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(15);
+    }
 
     pressStartRef.current = Date.now();
     longPressTriggeredRef.current = false;
 
-    // If 5 digits '99999' already entered, start hold tracker for 6th digit
-    if (pin === '99999') {
+    // If 3 digits '999' or 5 digits '99999' already entered, start hold tracker
+    if (pin === '999' || pin === '99999') {
       setIsHoldingSixthDigit(true);
       setHoldProgress(0);
 
@@ -346,8 +358,13 @@ export default function DuressLockscreen({
           clearInterval(holdProgressIntervalRef.current);
           holdProgressIntervalRef.current = null;
         }
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate([30, 50, 100]);
+        }
         enterDuressMode();
       }, 1500);
+    } else {
+      handleDigitPress('9');
     }
   };
 
@@ -370,13 +387,13 @@ export default function DuressLockscreen({
     // Already triggered by 1500ms auto-timeout
     if (longPressTriggeredRef.current) return;
 
-    // If pin is '99999' and 6th digit was released too quickly (< 1500ms)
-    if (pin === '99999') {
+    // If pin was '999' or '99999' and digit was released too quickly (< 1500ms)
+    if (pin === '999' || pin === '99999') {
       if (duration < 1500) {
         // Gesture Guard: Reject accidental / child sequential tapping
-        console.warn(`[SECURITY GUARD] Duress 6th digit held for only ${duration}ms (< 1500ms). Tap rejected as accidental trigger.`);
+        console.warn(`[SECURITY GUARD] Duress digit held for only ${duration}ms (< 1500ms). Tap rejected as accidental trigger.`);
         setIsShaking(true);
-        setGestureGuardAlert('TAP REJECTED: Hold 6th "9" for 1.5s');
+        setGestureGuardAlert('HOLD REQUIRED: Hold "9" for 1.5s to trigger');
         setTimeout(() => {
           setIsShaking(false);
           setPin('');
@@ -385,9 +402,6 @@ export default function DuressLockscreen({
       } else {
         enterDuressMode();
       }
-    } else {
-      // Normal digit press for 1st through 5th '9'
-      handleDigitPress('9');
     }
   };
 
@@ -431,24 +445,28 @@ export default function DuressLockscreen({
     };
   }, [screenState, pin, abortPin]);
 
-  // Abort Keypad Handler in REVOKE_MODAL (6-digit Master PIN 180499)
+  // Abort Keypad Handler in REVOKE_MODAL (Master PIN: 1234 or 180499)
   const handleAbortDigit = (digit) => {
     if (abortPin.length >= 6) return;
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(10);
+    }
     const nextAbort = abortPin + digit;
     setAbortPin(nextAbort);
 
-    if (nextAbort.length === 6) {
-      if (nextAbort === '180499') {
-        executeMasterPinRevoke();
-      } else {
-        // Wrong Master PIN: immediate return to blackout screen to protect stealth
-        setIsAbortShaking(true);
-        setTimeout(() => {
-          setIsAbortShaking(false);
-          setAbortPin('');
-          setScreenState('BLACKOUT');
-        }, 400);
-      }
+    if (nextAbort === '1234' || nextAbort === '180499') {
+      executeMasterPinRevoke();
+      return;
+    }
+
+    if (nextAbort.length >= 6) {
+      // Wrong Master PIN: immediate return to blackout screen to protect stealth
+      setIsAbortShaking(true);
+      setTimeout(() => {
+        setIsAbortShaking(false);
+        setAbortPin('');
+        setScreenState('BLACKOUT');
+      }, 400);
     }
   };
 
@@ -494,29 +512,32 @@ export default function DuressLockscreen({
   // ==========================================
   // RENDER: [REVOKE_MODAL] Discreet Abort Prompt
   // ==========================================
+  const containerClasses = isFramed
+    ? "w-full max-w-[360px] h-[720px] rounded-[48px] p-6 shadow-2xl border-[5px] border-neutral-800 bg-neutral-950 flex flex-col justify-between items-center relative overflow-hidden select-none"
+    : "w-full h-full min-h-[100dvh] max-w-md mx-auto bg-black p-5 sm:p-7 flex flex-col justify-between items-center relative overflow-hidden select-none";
+
   if (screenState === 'REVOKE_MODAL') {
     return (
-      <div className={`w-full select-none ${isNative ? 'h-full min-h-screen bg-black' : 'max-w-sm mx-auto'}`}>
-        <div className={`w-full bg-neutral-950 relative overflow-hidden flex flex-col items-center justify-between ${isNative ? 'h-full min-h-screen p-6' : 'h-[620px] rounded-[46px] p-6 shadow-2xl border-4 border-neutral-900'}`}>
-          
+      <div className={`w-full h-full min-h-[100dvh] flex items-center justify-center bg-black ${isFramed ? 'py-4' : ''}`}>
+        <div className={containerClasses}>
           {/* Subtle Header */}
           <div className="w-full pt-4 flex flex-col items-center text-center">
-            <div className="w-9 h-9 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center mb-3">
-              <ShieldCheck className="w-4 h-4 text-neutral-400" />
+            <div className="w-10 h-10 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center mb-3">
+              <ShieldCheck className="w-5 h-5 text-neutral-300" />
             </div>
-            <h3 className="text-xs font-semibold text-neutral-300 tracking-wider uppercase font-mono">
+            <h3 className="text-xs font-semibold text-neutral-200 tracking-wider uppercase font-mono">
               Master Passcode Verification
             </h3>
-            <p className="text-[11px] text-neutral-500 mt-1 max-w-[220px]">
-              Enter Master PIN <span className="font-mono text-neutral-400">180499</span> to abort emergency dispatch
+            <p className="text-[11px] text-neutral-400 mt-1 max-w-[240px]">
+              Enter Master PIN <span className="font-mono text-neutral-200 font-bold">1234</span> to abort emergency dispatch
             </p>
 
             {/* Grace Window Status Banner */}
-            <div className="mt-3 py-1 px-3 rounded-full bg-neutral-900/90 border border-neutral-800 flex items-center gap-2 text-[10px] font-mono">
-              <Timer className={`w-3 h-3 ${graceSecondsLeft > 0 ? 'text-amber-400 animate-pulse' : 'text-rose-400'}`} />
+            <div className="mt-3 py-1.5 px-3.5 rounded-full bg-neutral-900/90 border border-neutral-800 flex items-center gap-2 text-[10px] font-mono">
+              <Timer className={`w-3.5 h-3.5 ${graceSecondsLeft > 0 ? 'text-amber-400 animate-pulse' : 'text-rose-400'}`} />
               {graceSecondsLeft > 0 ? (
                 <span className="text-amber-300">
-                  Silent Revocation Grace: <b className="text-amber-200">{graceSecondsLeft}s</b> remaining
+                  Silent Revocation Grace: <b className="text-amber-200 font-bold">{graceSecondsLeft}s</b> remaining
                 </span>
               ) : (
                 <span className="text-rose-400">
@@ -527,15 +548,15 @@ export default function DuressLockscreen({
           </div>
 
           {/* 6 PIN Dots */}
-          <div className={`flex justify-center items-center gap-4 my-2 ${isAbortShaking ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}>
+          <div className={`flex justify-center items-center gap-4 my-3 ${isAbortShaking ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}>
             {[0, 1, 2, 3, 4, 5].map((index) => {
               const isFilled = abortPin.length > index;
               return (
                 <div
                   key={index}
-                  className={`w-3 h-3 rounded-full transition-all duration-150 ${
+                  className={`w-3.5 h-3.5 rounded-full transition-all duration-150 ${
                     isFilled
-                      ? 'bg-neutral-300 scale-105'
+                      ? 'bg-neutral-200 scale-105 shadow'
                       : 'border-2 border-neutral-700 bg-transparent'
                   }`}
                 />
@@ -544,12 +565,12 @@ export default function DuressLockscreen({
           </div>
 
           {/* Discreet Low-Contrast Keypad */}
-          <div className="grid grid-cols-3 gap-y-3 gap-x-5 max-w-[240px] mx-auto mb-2">
+          <div className="grid grid-cols-3 gap-y-3.5 gap-x-6 max-w-[260px] mx-auto mb-2 w-full">
             {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
               <button
                 key={digit}
                 onClick={() => handleAbortDigit(digit)}
-                className="w-14 h-14 rounded-full bg-neutral-900 hover:bg-neutral-850 active:bg-neutral-800 text-neutral-300 flex items-center justify-center border border-neutral-800 text-xl font-light active:scale-95 transition-all"
+                className="w-16 h-16 rounded-full bg-neutral-900 hover:bg-neutral-850 active:bg-neutral-800 text-neutral-200 flex items-center justify-center border border-neutral-800 text-2xl font-light active:scale-95 transition-all mx-auto touch-manipulation"
               >
                 {digit}
               </button>
@@ -560,21 +581,21 @@ export default function DuressLockscreen({
                 setScreenState('BLACKOUT');
                 setAbortPin('');
               }}
-              className="flex items-center justify-center text-[11px] text-neutral-500 hover:text-neutral-300"
+              className="flex items-center justify-center text-xs text-neutral-400 hover:text-neutral-200 font-medium active:scale-95"
             >
               Cancel
             </button>
 
             <button
               onClick={() => handleAbortDigit('0')}
-              className="w-14 h-14 rounded-full bg-neutral-900 hover:bg-neutral-850 active:bg-neutral-800 text-neutral-300 flex items-center justify-center border border-neutral-800 text-xl font-light active:scale-95 transition-all mx-auto"
+              className="w-16 h-16 rounded-full bg-neutral-900 hover:bg-neutral-850 active:bg-neutral-800 text-neutral-200 flex items-center justify-center border border-neutral-800 text-2xl font-light active:scale-95 transition-all mx-auto touch-manipulation"
             >
               0
             </button>
 
             <button
               onClick={() => setAbortPin((prev) => prev.slice(0, -1))}
-              className="flex items-center justify-center text-[11px] text-neutral-500 hover:text-neutral-300"
+              className="flex items-center justify-center text-xs text-neutral-400 hover:text-neutral-200 font-medium active:scale-95"
             >
               Clear
             </button>
@@ -595,14 +616,13 @@ export default function DuressLockscreen({
   // ==========================================
   if (screenState === 'BLACKOUT') {
     return (
-      <div className={`w-full select-none ${isNative ? 'h-full min-h-screen bg-black' : 'max-w-sm mx-auto'}`}>
-        <div className={`w-full bg-black relative overflow-hidden flex flex-col items-center justify-between ${isNative ? 'h-full min-h-screen p-6' : 'h-[620px] rounded-[46px] p-6 shadow-2xl border-4 border-neutral-900'}`}>
-          
+      <div className={`w-full h-full min-h-[100dvh] flex items-center justify-center bg-black ${isFramed ? 'py-4' : ''}`}>
+        <div className={containerClasses}>
           {/* Secret Escape Hatch Hitzone in Top Right */}
           <div
             onDoubleClick={handleSecretCornerDoubleInteract}
             onTouchStart={handleCornerTouchStart}
-            className="absolute top-2 right-2 w-14 h-14 z-50 cursor-pointer opacity-0"
+            className="absolute top-0 right-0 w-20 h-20 z-50 cursor-pointer opacity-0"
             title="Double-click secret escape hatch to enter Master PIN 1234 abort prompt"
           />
 
@@ -614,18 +634,20 @@ export default function DuressLockscreen({
           </div>
 
           {/* Center Indicator */}
-          <div className="text-center px-4">
+          <div className="text-center px-4 my-auto">
             {isDeviceDestroyed ? (
-              <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-900/60 text-rose-400 space-y-1 animate-pulse">
-                <Skull className="w-6 h-6 mx-auto text-rose-500" />
-                <div className="text-xs font-bold tracking-tight">DEAD MAN'S SWITCH FIRED</div>
-                <div className="text-[10px] text-rose-300">Heartbeats stopped &gt;8s. Police dispatched with armed escalation.</div>
+              <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-900/60 text-rose-400 space-y-2 animate-pulse max-w-xs mx-auto">
+                <Skull className="w-8 h-8 mx-auto text-rose-500" />
+                <div className="text-sm font-bold tracking-tight">DEAD MAN'S SWITCH FIRED</div>
+                <div className="text-[11px] text-rose-300 leading-relaxed">
+                  Heartbeats stopped &gt;8s. Police dispatched with armed escalation.
+                </div>
               </div>
             ) : graceSecondsLeft > 0 ? (
-              <div className="space-y-2 text-neutral-800">
-                <div className="text-xs font-mono text-neutral-700">Device Screen In Stealth Blackout</div>
-                <div className="text-[10px] text-neutral-600 font-mono flex items-center justify-center gap-1.5">
-                  <Timer className="w-3 h-3 text-neutral-600 animate-spin" />
+              <div className="space-y-3 text-neutral-800">
+                <div className="text-sm font-mono text-neutral-700">Device Screen In Stealth Blackout</div>
+                <div className="text-xs text-neutral-600 font-mono flex items-center justify-center gap-2">
+                  <Timer className="w-3.5 h-3.5 text-neutral-600 animate-spin" />
                   15-Second Silent Dispatch Delay ({graceSecondsLeft}s left)
                 </div>
               </div>
@@ -638,14 +660,14 @@ export default function DuressLockscreen({
           </div>
 
           {/* Examiner Testing Controls */}
-          <div className="w-full space-y-2 pb-2">
+          <div className="w-full space-y-2 pb-3">
             {!isDeviceDestroyed && (
               <button
                 onClick={onSimulateDeviceDestroy}
-                className="w-full py-2 px-3 bg-neutral-900/90 hover:bg-rose-950 text-neutral-400 hover:text-rose-300 rounded-xl text-xs font-mono border border-neutral-800 transition-colors flex items-center justify-center gap-1.5"
+                className="w-full py-2.5 px-3 bg-neutral-900/90 hover:bg-rose-950 active:bg-rose-900 text-neutral-400 hover:text-rose-300 rounded-xl text-xs font-mono border border-neutral-800 transition-colors flex items-center justify-center gap-1.5 touch-manipulation"
                 title="Stops background heartbeats to test the 8-second Dead Man's Switch escalation"
               >
-                <Skull className="w-3.5 h-3.5 text-rose-500" />
+                <Skull className="w-4 h-4 text-rose-500" />
                 Simulate Smashed Phone (Kill Heartbeat)
               </button>
             )}
@@ -653,9 +675,9 @@ export default function DuressLockscreen({
             {/* Explicit Abort Hatch Pill */}
             <button
               onClick={handleSecretCornerDoubleInteract}
-              className="w-full py-1.5 px-3 bg-neutral-950 hover:bg-neutral-900 text-neutral-500 hover:text-neutral-300 rounded-xl text-[11px] font-mono border border-neutral-900 transition-colors flex items-center justify-center gap-1"
+              className="w-full py-2 px-3 bg-neutral-950 hover:bg-neutral-900 active:bg-neutral-850 text-neutral-500 hover:text-neutral-300 rounded-xl text-xs font-mono border border-neutral-900 transition-colors flex items-center justify-center gap-1.5 touch-manipulation"
             >
-              <ShieldCheck className="w-3 h-3 text-amber-500/70" />
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-500/70" />
               Double-tap top-right (or here) for Master PIN Abort
             </button>
           </div>
@@ -669,25 +691,24 @@ export default function DuressLockscreen({
   // ==========================================
   if (screenState === 'SHUTTING_DOWN') {
     return (
-      <div className={`w-full select-none ${isNative ? 'h-full min-h-screen bg-black' : 'max-w-sm mx-auto'}`}>
-        <div className={`w-full bg-black relative overflow-hidden flex flex-col items-center justify-center ${isNative ? 'h-full min-h-screen p-6' : 'h-[620px] rounded-[46px] p-6 shadow-2xl border-4 border-neutral-900'}`}>
-          
+      <div className={`w-full h-full min-h-[100dvh] flex items-center justify-center bg-black ${isFramed ? 'py-4' : ''}`}>
+        <div className={containerClasses}>
           {/* Secret corner abort hitzone even during shutdown */}
           <div
             onDoubleClick={handleSecretCornerDoubleInteract}
             onTouchStart={handleCornerTouchStart}
-            className="absolute top-2 right-2 w-14 h-14 z-50 cursor-pointer opacity-0"
+            className="absolute top-0 right-0 w-20 h-20 z-50 cursor-pointer opacity-0"
           />
 
-          <div className="flex flex-col items-center gap-4 text-neutral-300">
-            <RefreshCw className="w-12 h-12 animate-spin text-neutral-400 stroke-[1.5]" />
+          <div className="flex flex-col items-center gap-4 text-neutral-300 my-auto">
+            <RefreshCw className="w-14 h-14 animate-spin text-neutral-400 stroke-[1.5]" />
             <div className="text-center">
-              <span className="text-base font-medium tracking-wide block text-white">Shutting down...</span>
+              <span className="text-lg font-medium tracking-wide block text-white">Shutting down...</span>
               <span className="text-xs text-neutral-400 mt-1 block">Goodbye</span>
             </div>
           </div>
 
-          <div className="absolute bottom-6 text-[10px] text-neutral-600 font-mono tracking-widest uppercase">
+          <div className="pb-4 text-[11px] text-neutral-600 font-mono tracking-widest uppercase text-center">
             15-Second Silent Revocation Window Active ({graceSecondsLeft}s)
           </div>
         </div>
@@ -699,75 +720,73 @@ export default function DuressLockscreen({
   // RENDER: [LOCKED] Standard Lockscreen
   // ==========================================
   return (
-    <div className={`flex flex-col items-center justify-center w-full select-none ${isNative ? 'h-full min-h-screen bg-black' : 'max-w-sm mx-auto'}`}>
-      <div className={`w-full relative overflow-hidden flex flex-col justify-between ${isNative ? 'h-full min-h-screen p-6 bg-gradient-to-b from-neutral-950 via-black to-black' : 'bg-gradient-to-b from-neutral-900 via-neutral-950 to-black rounded-[46px] p-6 shadow-2xl border-4 border-neutral-800 backdrop-blur-2xl'}`}>
-        
+    <div className={`w-full h-full min-h-[100dvh] flex items-center justify-center bg-black ${isFramed ? 'py-4' : ''}`}>
+      <div className={containerClasses}>
         {/* Dynamic Island with Interactive Proximity Test Notch */}
-        <div className="flex justify-between items-center mb-6 px-2 text-white text-xs font-medium">
-          <span>{hours}:{minutes}</span>
+        <div className="w-full flex justify-between items-center px-1 text-white text-xs font-medium shrink-0 pt-1">
+          <span className="w-12 text-left font-mono">{hours}:{minutes}</span>
 
           {/* Interactive Camera Notch / Proximity Sensor */}
           <button
             onClick={handleNotchClick}
-            className={`w-28 h-5 rounded-full mx-auto -mt-2 transition-all flex items-center justify-center border ${
+            className={`w-28 h-5 rounded-full transition-all flex items-center justify-center border ${
               notchRipple
                 ? 'bg-rose-600 border-rose-400 scale-105 shadow-md shadow-rose-900/60'
-                : 'bg-black border-neutral-800 hover:border-neutral-700'
+                : 'bg-neutral-900/90 border-neutral-800 hover:border-neutral-700'
             }`}
             title="Interactive Proximity Sensor: Tap 3 times in 2 seconds for Proximity Blind-Tap"
           >
-            <span className="text-[9px] text-neutral-600 font-mono">
-              {notchRipple ? 'SENSOR' : ''}
+            <span className="text-[9px] text-neutral-500 font-mono font-medium">
+              {notchRipple ? 'SENSOR TAP' : '● SENSOR'}
             </span>
           </button>
 
-          <div className="flex items-center space-x-1.5">
+          <div className="w-12 flex items-center justify-end space-x-1.5">
             <Wifi className="w-3.5 h-3.5 text-white" />
-            <span className="text-[10px] tracking-tight">5G</span>
             <Battery className="w-4 h-4 text-white" />
           </div>
         </div>
 
         {/* Padlock Icon & Clock */}
-        <div className="flex flex-col items-center mb-4">
+        <div className="flex flex-col items-center my-auto shrink-0 pt-2 pb-1">
           <div className="mb-2 text-neutral-400">
             {screenState === 'UNLOCKED' ? (
               <Unlock className="w-5 h-5 text-emerald-400 animate-bounce" />
             ) : (
-              <Lock className="w-5 h-5 text-neutral-300" />
+              <Lock className="w-5 h-5 text-neutral-400" />
             )}
           </div>
 
-          <div className="text-5xl font-light text-white tracking-tight mb-1 font-sans">
+          <div className="text-5xl sm:text-6xl font-extralight text-white tracking-tight mb-1 font-sans">
             {hours}:{minutes}
           </div>
-          <div className="text-xs text-neutral-400 font-medium">
+          <div className="text-xs sm:text-sm text-neutral-400 font-medium">
             {dateFormatted}
           </div>
         </div>
 
         {/* Enter Passcode or Gesture Guard Alert */}
-        <div className="text-center mb-3 min-h-[22px]">
+        <div className="text-center min-h-[24px] shrink-0">
           {gestureGuardAlert ? (
-            <span className="text-[11px] text-amber-400 font-medium tracking-wide animate-pulse">
+            <span className="text-xs text-amber-400 font-medium tracking-wide animate-pulse">
               {gestureGuardAlert}
             </span>
           ) : isHoldingSixthDigit ? (
-            <span className="text-[11px] text-rose-400 font-mono animate-pulse">
+            <span className="text-xs text-rose-400 font-mono font-bold animate-pulse">
               Holding 6th digit: {holdProgress}% (Hold 1.5s)
             </span>
           ) : (
-            <p className="text-xs text-neutral-300 font-medium tracking-wide">
+            <p className="text-xs text-neutral-400 font-medium tracking-wide">
               Enter Passcode
             </p>
           )}
         </div>
 
         {/* 6 PIN Dots */}
-        <div className={`flex justify-center items-center gap-3.5 mb-6 ${isShaking ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}>
+        <div className={`flex justify-center items-center gap-3.5 my-2 shrink-0 ${isShaking ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}>
           {[0, 1, 2, 3, 4, 5].map((index) => {
             const isFilled = pin.length > index;
-            const isTargetSixth = index === 5 && isHoldingSixthDigit;
+            const isTargetSixth = (index === 5 || index === 3) && isHoldingSixthDigit;
             return (
               <div
                 key={index}
@@ -777,10 +796,10 @@ export default function DuressLockscreen({
                       ? 'bg-emerald-400 scale-110 shadow-lg shadow-emerald-500/50'
                       : isShaking
                       ? 'bg-rose-500 scale-110 shadow-lg shadow-rose-500/50'
-                      : 'bg-white scale-105'
+                      : 'bg-white scale-105 shadow-sm'
                     : isTargetSixth
                     ? 'border-2 border-rose-500 bg-rose-500/40 scale-110'
-                    : 'border-2 border-neutral-500/80 bg-transparent'
+                    : 'border-2 border-neutral-600/80 bg-transparent'
                 }`}
               >
                 {isTargetSixth && (
@@ -793,8 +812,8 @@ export default function DuressLockscreen({
           })}
         </div>
 
-        {/* Keypad Grid (0-9 with letters) */}
-        <div className="grid grid-cols-3 gap-y-3 gap-x-5 max-w-[260px] mx-auto mb-4">
+        {/* Keypad Grid (0-9 with letters) - Responsive Aspect & Touch Target */}
+        <div className="grid grid-cols-3 gap-y-3 sm:gap-y-4 gap-x-5 sm:gap-x-7 max-w-[280px] sm:max-w-[300px] w-full mx-auto my-auto shrink-0">
           {[
             { num: '1', letters: '' },
             { num: '2', letters: 'ABC' },
@@ -815,22 +834,22 @@ export default function DuressLockscreen({
                 onMouseUp={isNine ? handleNinePressEnd : undefined}
                 onTouchStart={isNine ? handleNinePressStart : undefined}
                 onTouchEnd={isNine ? handleNinePressEnd : undefined}
-                className={`w-16 h-16 rounded-full text-white flex flex-col items-center justify-center transition-all border backdrop-blur-md active:scale-95 relative overflow-hidden ${
+                className={`w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] rounded-full text-white flex flex-col items-center justify-center transition-all border backdrop-blur-md active:scale-95 active:brightness-125 select-none touch-manipulation relative overflow-hidden mx-auto ${
                   isNine && isHoldingSixthDigit
-                    ? 'bg-rose-900/80 border-rose-500 shadow-lg shadow-rose-950/80'
-                    : 'bg-neutral-800/60 active:bg-neutral-600/60 border-neutral-700/30'
+                    ? 'bg-rose-900/90 border-rose-500 shadow-lg shadow-rose-950/80 ring-2 ring-rose-500/50'
+                    : 'bg-neutral-850/80 hover:bg-neutral-800 active:bg-neutral-700/80 border-neutral-700/40 shadow-sm'
                 }`}
               >
-                {/* Hold Progress Background Fill for 6th digit 9 */}
+                {/* Hold Progress Background Fill for trigger digit 9 */}
                 {isNine && isHoldingSixthDigit && (
                   <div
-                    className="absolute bottom-0 left-0 right-0 bg-rose-600/40 transition-all duration-75 pointer-events-none"
+                    className="absolute bottom-0 left-0 right-0 bg-rose-600/60 transition-all duration-75 pointer-events-none"
                     style={{ height: `${holdProgress}%` }}
                   />
                 )}
-                <span className="text-2xl font-light leading-none relative z-10">{item.num}</span>
+                <span className="text-2xl sm:text-3xl font-light leading-none relative z-10">{item.num}</span>
                 {item.letters && (
-                  <span className="text-[9px] tracking-widest text-neutral-400 font-semibold mt-0.5 relative z-10">
+                  <span className="text-[9px] sm:text-[10px] tracking-widest text-neutral-400 font-medium mt-0.5 relative z-10">
                     {item.letters}
                   </span>
                 )}
@@ -840,46 +859,74 @@ export default function DuressLockscreen({
 
           {/* Bottom Row */}
           <div className="flex items-center justify-center">
-            <span className="text-[11px] text-neutral-400 font-medium">
+            <span className="text-xs text-neutral-400 font-medium">
               Emergency
             </span>
           </div>
 
           <button
             onClick={() => handleDigitPress('0')}
-            className="w-16 h-16 rounded-full bg-neutral-800/60 active:bg-neutral-600/60 text-white flex flex-col items-center justify-center transition-all border border-neutral-700/30 backdrop-blur-md active:scale-95 mx-auto"
+            className="w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] rounded-full bg-neutral-850/80 hover:bg-neutral-800 active:bg-neutral-700/80 text-white flex flex-col items-center justify-center transition-all border border-neutral-700/40 backdrop-blur-md active:scale-95 active:brightness-125 mx-auto touch-manipulation shadow-sm"
           >
-            <span className="text-2xl font-light leading-none">0</span>
+            <span className="text-2xl sm:text-3xl font-light leading-none">0</span>
           </button>
 
           <button
             onClick={pin.length > 0 ? () => setPin((prev) => prev.slice(0, -1)) : () => setPin('')}
-            className="flex items-center justify-center text-xs text-neutral-300 font-medium active:text-white"
+            className="flex items-center justify-center text-xs sm:text-sm text-neutral-300 font-medium active:text-white active:scale-95 touch-manipulation"
           >
             {pin.length > 0 ? 'Delete' : 'Cancel'}
           </button>
         </div>
 
-        {/* iOS Home Indicator */}
-        <div className="w-32 h-1 bg-white/30 rounded-full mx-auto mt-2"></div>
-      </div>
+        {/* Bottom Bar & Discreet Demo Helper */}
+        <div className="w-full flex flex-col items-center mt-2 shrink-0">
+          <div className="w-32 h-1 bg-white/30 rounded-full mb-2"></div>
+          <button
+            onClick={() => setShowDemoGuide(!showDemoGuide)}
+            className="text-[11px] text-neutral-400 hover:text-neutral-200 font-mono py-1 px-3 rounded-full bg-neutral-900/70 hover:bg-neutral-800 border border-neutral-800/80 transition-all flex items-center gap-1.5 touch-manipulation"
+          >
+            <Info className="w-3 h-3 text-cyan-400" />
+            <span>PIN Guide: 1234 / 9999</span>
+            <ChevronRight className={`w-3 h-3 transition-transform ${showDemoGuide ? 'rotate-90' : ''}`} />
+          </button>
+        </div>
 
-      {/* Presentation Helper Chips */}
-      <div className="mt-3.5 p-3 bg-neutral-900/90 border border-neutral-800 rounded-xl text-center w-full max-w-sm backdrop-blur text-xs space-y-1.5">
-        <div className="flex items-center justify-between text-neutral-300 text-[11px]">
-          <span>Standard Unlock:</span>
-          <code className="font-mono bg-neutral-800 px-1.5 py-0.5 rounded text-emerald-400 font-bold">1234</code>
-        </div>
-        <div className="flex items-center justify-between text-neutral-300 text-[11px]">
-          <span>Duress PIN + Gesture Guard:</span>
-          <code className="font-mono bg-neutral-800 px-1.5 py-0.5 rounded text-rose-400 font-bold">
-            9-9-9 + Hold '9' &gt;=1.5s
-          </code>
-        </div>
-        <div className="flex items-center justify-between text-neutral-400 text-[11px] pt-0.5 border-t border-neutral-800">
-          <span>False-Alarm Revoke Window:</span>
-          <span className="text-amber-400 font-semibold">15s Delay • Master PIN 1234</span>
-        </div>
+        {/* Floating Demo Sheet */}
+        {showDemoGuide && (
+          <div className="absolute inset-x-4 bottom-14 z-50 p-4 rounded-2xl bg-neutral-900/95 border border-neutral-700 shadow-2xl backdrop-blur-xl text-left animate-in fade-in duration-200">
+            <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-neutral-800">
+              <span className="text-xs font-bold text-white uppercase tracking-wider font-mono flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5 text-cyan-400" />
+                Emergency Trigger Test Matrix
+              </span>
+              <button
+                onClick={() => setShowDemoGuide(false)}
+                className="text-neutral-400 hover:text-white text-xs px-2 py-0.5 rounded bg-neutral-800"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-1.5 text-xs text-neutral-300">
+              <div className="flex items-center justify-between">
+                <span className="text-neutral-400">Clean Unlock PIN:</span>
+                <code className="text-emerald-400 font-mono font-bold bg-neutral-800 px-1.5 py-0.5 rounded">1234</code>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-neutral-400">Duress Trigger PIN:</span>
+                <code className="text-rose-400 font-mono font-bold bg-neutral-800 px-1.5 py-0.5 rounded">999 + Hold 9 (1.5s)</code>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-neutral-400">Proximity Blind-Tap:</span>
+                <span className="text-purple-300 font-mono text-[11px]">3x notch taps</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-neutral-800 pt-1 text-[11px]">
+                <span className="text-neutral-400">Master Abort Hatch:</span>
+                <span className="text-amber-300 font-mono">Top-right double-tap + 1234</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

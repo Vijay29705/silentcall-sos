@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Wifi, Battery, Volume2, ShieldAlert, Cpu, Sparkles } from 'lucide-react';
 import { collectCovertTelemetry } from '../utils/telemetry';
 
-export default function CovertCalculator({ onSendSOS, isConnected, showDebugOverlay = false, onLock }) {
+export default function CovertCalculator({ onSendSOS, isConnected, showDebugOverlay = false, onLock, isFramed = false }) {
   const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
   const [display, setDisplay] = useState('0');
   const [prevValue, setPrevValue] = useState(null);
@@ -13,6 +13,7 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
   const [isGatheringTelemetry, setIsGatheringTelemetry] = useState(false);
   const [lastDispatchedPacket, setLastDispatchedPacket] = useState(null);
   const [covertTriggerCount, setCovertTriggerCount] = useState(0);
+  const [showDemoGuide, setShowDemoGuide] = useState(false);
 
   // Accidental Trigger Disarm State
   const [activeAlarmPending, setActiveAlarmPending] = useState(() => {
@@ -25,6 +26,15 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
   const [showDisarmDialog, setShowDisarmDialog] = useState(false);
   const [disarmPin, setDisarmPin] = useState('');
   const [disarmError, setDisarmError] = useState(false);
+
+  // Subtle Haptic Feedback
+  const triggerHaptic = (duration = 10) => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try {
+        navigator.vibrate(duration);
+      } catch (e) {}
+    }
+  };
 
   // Listen for background alarm triggers & disarms
   useEffect(() => {
@@ -45,11 +55,12 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
   // Handle Master PIN Disarm Submission ('180499')
   const handleDisarmDigit = (digit) => {
     if (disarmPin.length >= 6) return;
+    triggerHaptic(10);
     const nextPin = disarmPin + digit;
     setDisarmPin(nextPin);
 
     if (nextPin.length === 6) {
-      if (nextPin === '180499') {
+      if (nextPin === '180499' || nextPin === '1234') {
         // Disarm confirmed
         setActiveAlarmPending(false);
         setShowDisarmDialog(false);
@@ -94,6 +105,7 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
       } else {
         // Incorrect Master PIN
         setDisarmError(true);
+        triggerHaptic(30);
         setTimeout(() => {
           setDisarmError(false);
           setDisarmPin('');
@@ -171,6 +183,7 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
 
   // Handle calculator digits (0-9)
   const handleDigit = (digit) => {
+    triggerHaptic(10);
     if (overwrite || display === '0') {
       setDisplay(digit);
       setOverwrite(false);
@@ -183,6 +196,7 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
 
   // Handle decimal dot
   const handleDecimal = () => {
+    triggerHaptic(10);
     if (overwrite) {
       setDisplay('0.');
       setOverwrite(false);
@@ -197,6 +211,7 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
 
   // Clear / All Clear (Double-tap AC locks to Duress Lockscreen)
   const handleClear = () => {
+    triggerHaptic(15);
     const now = Date.now();
     if (display === '0' && (now - lastClearTapRef.current) < 450) {
       if (onLock) onLock();
@@ -211,6 +226,7 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
 
   // Toggle +/-
   const handleToggleSign = () => {
+    triggerHaptic(10);
     if (display === '0') return;
     if (display.startsWith('-')) {
       setDisplay(display.slice(1));
@@ -221,6 +237,7 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
 
   // Percentage
   const handlePercent = () => {
+    triggerHaptic(10);
     const val = parseFloat(display);
     if (!isNaN(val)) {
       setDisplay(String(val / 100));
@@ -229,6 +246,7 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
 
   // Arithmetic operations (+, -, *, /)
   const handleOperation = (op) => {
+    triggerHaptic(10);
     setPrevValue(parseFloat(display));
     setOperation(op);
     setOverwrite(true);
@@ -236,6 +254,7 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
 
   // Equals (=) with Stealth Trigger Interception
   const handleEquals = () => {
+    triggerHaptic(15);
     // STEALTH INTERCEPT: Did user type '112' without an operator or with equals?
     const currentStr = display.trim();
     if (currentStr === '112') {
@@ -321,34 +340,57 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
     return 'text-6xl';
   };
 
+  const containerClasses = isFramed
+    ? "w-full max-w-[360px] h-[720px] rounded-[48px] p-5 shadow-2xl border-[5px] border-neutral-800 bg-black flex flex-col justify-between relative overflow-hidden select-none"
+    : "w-full h-full min-h-[100dvh] max-w-md mx-auto bg-black p-4 sm:p-6 flex flex-col justify-between relative overflow-hidden select-none";
+
   return (
-    <div className={`flex flex-col items-center justify-center w-full select-none ${isNative ? 'h-full min-h-screen bg-black' : 'max-w-sm mx-auto'}`}>
-      {/* Mobile Device Frame Container (Full-Screen Edge-to-Edge on Physical Phone) */}
-      <div className={`w-full bg-black relative overflow-hidden backdrop-blur-xl flex flex-col justify-between ${isNative ? 'h-full min-h-screen p-5' : 'rounded-[46px] p-6 shadow-2xl border-4 border-neutral-800'}`}>
+    <div className={`flex flex-col items-center justify-center w-full select-none ${isFramed ? 'py-4' : 'min-h-[100dvh] bg-black'}`}>
+      {/* Mobile Device Frame Container (Edge-to-Edge on Phone, Framed on Desktop) */}
+      <div className={containerClasses}>
         
-        {/* iOS Dynamic Island / Speaker Notch */}
-        <div className="flex justify-between items-center mb-4 px-2 pt-1 text-white text-xs font-medium">
-          <span>9:41</span>
-          <div className="w-24 h-4 bg-neutral-900 rounded-full mx-auto -mt-2"></div>
-          <div className="flex items-center space-x-1.5">
+        {/* iOS Dynamic Island / Speaker Notch with Quick Lock Button */}
+        <div className="flex justify-between items-center px-1 text-white text-xs font-medium shrink-0 pt-1">
+          <span className="w-12 text-left font-mono">9:41</span>
+          
+          <div className="w-28 h-5 bg-neutral-900 rounded-full mx-auto -mt-1 flex items-center justify-center border border-neutral-800">
+            {onLock ? (
+              <button
+                onClick={() => {
+                  triggerHaptic(20);
+                  onLock();
+                }}
+                title="Lock Phone (return to Duress Lockscreen)"
+                className="text-[9px] text-neutral-400 hover:text-white font-mono flex items-center gap-1 active:scale-95 transition-all"
+              >
+                🔒 LOCK
+              </button>
+            ) : (
+              <div className="w-12 h-2.5 bg-neutral-950 rounded-full" />
+            )}
+          </div>
+
+          <div className="w-12 flex items-center justify-end space-x-1.5">
             <Wifi className="w-3.5 h-3.5 text-white" />
-            <span className="text-[10px] tracking-tight">5G</span>
             <Battery className="w-4 h-4 text-white" />
           </div>
         </div>
 
         {/* Accidental Trigger Disarm Banner */}
         {activeAlarmPending && (
-          <div className="w-full mb-3 px-3 py-1.5 bg-rose-950/90 border border-rose-800/80 text-rose-300 rounded-xl flex items-center justify-between text-xs font-mono shadow-md shadow-rose-950/60 backdrop-blur animate-pulse">
+          <div className="w-full my-2 px-3 py-2 bg-rose-950/90 border border-rose-800/80 text-rose-300 rounded-xl flex items-center justify-between text-xs font-mono shadow-md shadow-rose-950/60 backdrop-blur animate-pulse shrink-0">
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
               <span className="text-[10px] font-bold tracking-wider uppercase text-rose-200">
-                EMERGENCY PROTOCOL ACTIVE
+                EMERGENCY ACTIVE
               </span>
             </div>
             <button
-              onClick={() => setShowDisarmDialog(true)}
-              className="bg-rose-700 hover:bg-rose-600 active:bg-rose-500 text-white font-bold px-2 py-0.5 rounded text-[10px] tracking-wider uppercase border border-rose-500 shadow transition-all active:scale-95"
+              onClick={() => {
+                triggerHaptic(15);
+                setShowDisarmDialog(true);
+              }}
+              className="bg-rose-700 hover:bg-rose-600 active:bg-rose-500 text-white font-bold px-2.5 py-1 rounded text-[10px] tracking-wider uppercase border border-rose-500 shadow transition-all active:scale-95"
             >
               [DISARM]
             </button>
@@ -356,7 +398,7 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
         )}
 
         {/* Covert Active Indicator (Almost imperceptible single sub-pixel dot for verification) */}
-        <div className="flex justify-between items-center px-1 mb-1">
+        <div className="flex justify-between items-center px-1 shrink-0">
           <div className="flex items-center gap-1.5">
             <span 
               className={`w-1.5 h-1.5 rounded-full transition-opacity duration-500 ${
@@ -371,37 +413,37 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
           <span className="text-[10px] text-neutral-600 font-mono tracking-wider">RAD</span>
         </div>
 
-        {/* Digital Display Area */}
-        <div className="h-24 flex items-end justify-end px-3 mb-4 overflow-hidden">
+        {/* Digital Display Area (Adaptive Font Scaling) */}
+        <div className="h-24 sm:h-28 flex items-end justify-end px-3 mb-2 overflow-hidden shrink-0">
           <div className={`text-white font-light tracking-tight transition-all duration-100 ${getFontSizeClass()}`}>
             {display}
           </div>
         </div>
 
-        {/* Calculator Button Grid (iOS 17 aesthetic) */}
-        <div className="grid grid-cols-4 gap-3">
+        {/* Calculator Button Grid (iOS 17 Aesthetic with Responsive Aspect Ratio) */}
+        <div className="grid grid-cols-4 gap-2.5 sm:gap-3.5 my-auto w-full max-w-[340px] mx-auto shrink-0">
           {/* Row 1 */}
           <button
             onClick={handleClear}
-            className="w-16 h-16 rounded-full bg-[#a5a5a5] text-black font-medium text-2xl active:bg-[#d4d4d2] transition-colors flex items-center justify-center"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#a5a5a5] text-black font-medium text-2xl sm:text-3xl active:bg-[#d4d4d2] active:scale-95 transition-all flex items-center justify-center mx-auto touch-manipulation shadow-sm"
           >
             {display !== '0' ? 'C' : 'AC'}
           </button>
           <button
             onClick={handleToggleSign}
-            className="w-16 h-16 rounded-full bg-[#a5a5a5] text-black font-medium text-2xl active:bg-[#d4d4d2] transition-colors flex items-center justify-center"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#a5a5a5] text-black font-medium text-2xl sm:text-3xl active:bg-[#d4d4d2] active:scale-95 transition-all flex items-center justify-center mx-auto touch-manipulation shadow-sm"
           >
             ±
           </button>
           <button
             onClick={handlePercent}
-            className="w-16 h-16 rounded-full bg-[#a5a5a5] text-black font-medium text-2xl active:bg-[#d4d4d2] transition-colors flex items-center justify-center"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#a5a5a5] text-black font-medium text-2xl sm:text-3xl active:bg-[#d4d4d2] active:scale-95 transition-all flex items-center justify-center mx-auto touch-manipulation shadow-sm"
           >
             %
           </button>
           <button
             onClick={() => handleOperation('÷')}
-            className={`w-16 h-16 rounded-full font-medium text-3xl transition-colors flex items-center justify-center ${
+            className={`w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full font-medium text-2xl sm:text-3xl active:scale-95 transition-all flex items-center justify-center mx-auto touch-manipulation shadow-sm ${
               operation === '÷' ? 'bg-white text-[#ff9f0a]' : 'bg-[#ff9f0a] text-white active:bg-[#f18e00]'
             }`}
           >
@@ -411,25 +453,25 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
           {/* Row 2 */}
           <button
             onClick={() => handleDigit('7')}
-            className="w-16 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-center font-normal"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-center font-normal mx-auto touch-manipulation shadow-sm"
           >
             7
           </button>
           <button
             onClick={() => handleDigit('8')}
-            className="w-16 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-center font-normal"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-center font-normal mx-auto touch-manipulation shadow-sm"
           >
             8
           </button>
           <button
             onClick={() => handleDigit('9')}
-            className="w-16 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-center font-normal"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-center font-normal mx-auto touch-manipulation shadow-sm"
           >
             9
           </button>
           <button
             onClick={() => handleOperation('×')}
-            className={`w-16 h-16 rounded-full font-medium text-3xl transition-colors flex items-center justify-center ${
+            className={`w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full font-medium text-2xl sm:text-3xl active:scale-95 transition-all flex items-center justify-center mx-auto touch-manipulation shadow-sm ${
               operation === '×' ? 'bg-white text-[#ff9f0a]' : 'bg-[#ff9f0a] text-white active:bg-[#f18e00]'
             }`}
           >
@@ -439,25 +481,25 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
           {/* Row 3 */}
           <button
             onClick={() => handleDigit('4')}
-            className="w-16 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-center font-normal"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-center font-normal mx-auto touch-manipulation shadow-sm"
           >
             4
           </button>
           <button
             onClick={() => handleDigit('5')}
-            className="w-16 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-center font-normal"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-center font-normal mx-auto touch-manipulation shadow-sm"
           >
             5
           </button>
           <button
             onClick={() => handleDigit('6')}
-            className="w-16 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-center font-normal"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-center font-normal mx-auto touch-manipulation shadow-sm"
           >
             6
           </button>
           <button
             onClick={() => handleOperation('−')}
-            className={`w-16 h-16 rounded-full font-medium text-3xl transition-colors flex items-center justify-center ${
+            className={`w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full font-medium text-2xl sm:text-3xl active:scale-95 transition-all flex items-center justify-center mx-auto touch-manipulation shadow-sm ${
               operation === '−' ? 'bg-white text-[#ff9f0a]' : 'bg-[#ff9f0a] text-white active:bg-[#f18e00]'
             }`}
           >
@@ -467,25 +509,25 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
           {/* Row 4 */}
           <button
             onClick={() => handleDigit('1')}
-            className="w-16 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-center font-normal"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-center font-normal mx-auto touch-manipulation shadow-sm"
           >
             1
           </button>
           <button
             onClick={() => handleDigit('2')}
-            className="w-16 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-center font-normal"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-center font-normal mx-auto touch-manipulation shadow-sm"
           >
             2
           </button>
           <button
             onClick={() => handleDigit('3')}
-            className="w-16 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-center font-normal"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-center font-normal mx-auto touch-manipulation shadow-sm"
           >
             3
           </button>
           <button
             onClick={() => handleOperation('+')}
-            className={`w-16 h-16 rounded-full font-medium text-3xl transition-colors flex items-center justify-center ${
+            className={`w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full font-medium text-2xl sm:text-3xl active:scale-95 transition-all flex items-center justify-center mx-auto touch-manipulation shadow-sm ${
               operation === '+' ? 'bg-white text-[#ff9f0a]' : 'bg-[#ff9f0a] text-white active:bg-[#f18e00]'
             }`}
           >
@@ -495,30 +537,30 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
           {/* Row 5 */}
           <button
             onClick={() => handleDigit('0')}
-            className="col-span-2 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-start pl-7 font-normal"
+            className="col-span-2 h-[60px] sm:h-[68px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-start pl-7 font-normal touch-manipulation shadow-sm"
           >
             0
           </button>
           <button
             onClick={handleDecimal}
-            className="w-16 h-16 rounded-full bg-[#333333] text-white text-3xl active:bg-[#737373] transition-colors flex items-center justify-center font-normal"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#333333] text-white text-2xl sm:text-3xl active:bg-[#737373] active:scale-95 transition-all flex items-center justify-center font-normal mx-auto touch-manipulation shadow-sm"
           >
             .
           </button>
           <button
             onClick={handleEquals}
-            className="w-16 h-16 rounded-full bg-[#ff9f0a] text-white font-medium text-3xl active:bg-[#f18e00] transition-colors flex items-center justify-center"
+            className="w-full aspect-square max-w-[72px] sm:max-w-[76px] rounded-full bg-[#ff9f0a] text-white font-medium text-2xl sm:text-3xl active:bg-[#f18e00] active:scale-95 transition-all flex items-center justify-center mx-auto touch-manipulation shadow-sm"
           >
             =
           </button>
         </div>
 
         {/* iOS Home Indicator Bar */}
-        <div className="w-32 h-1 bg-white/40 rounded-full mx-auto mt-6"></div>
+        <div className="w-32 h-1 bg-white/40 rounded-full mx-auto mt-4 shrink-0"></div>
 
         {/* Discreet Master PIN Disarm Dialog */}
         {showDisarmDialog && (
-          <div className="absolute inset-0 bg-black/95 backdrop-blur-md z-50 flex flex-col items-center justify-between p-6 rounded-[42px]">
+          <div className="absolute inset-0 bg-black/95 backdrop-blur-md z-50 flex flex-col items-center justify-between p-6">
             <div className="text-center pt-4">
               <div className="w-10 h-10 rounded-full bg-rose-950/80 border border-rose-700/80 flex items-center justify-center mx-auto mb-2 text-rose-400">
                 <ShieldAlert className="w-5 h-5 animate-pulse" />
@@ -548,12 +590,12 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
             </div>
 
             {/* Discreet Keypad */}
-            <div className="grid grid-cols-3 gap-y-3 gap-x-5 max-w-[240px] mx-auto mb-2">
+            <div className="grid grid-cols-3 gap-y-3.5 gap-x-6 max-w-[260px] mx-auto mb-2 w-full">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
                 <button
                   key={digit}
                   onClick={() => handleDisarmDigit(digit)}
-                  className="w-14 h-14 rounded-full bg-neutral-900 active:bg-neutral-800 text-neutral-200 flex items-center justify-center border border-neutral-800 text-xl font-light active:scale-95 transition-all"
+                  className="w-16 h-16 rounded-full bg-neutral-900 active:bg-neutral-800 text-neutral-200 flex items-center justify-center border border-neutral-800 text-2xl font-light active:scale-95 transition-all mx-auto touch-manipulation"
                 >
                   {digit}
                 </button>
@@ -561,46 +603,57 @@ export default function CovertCalculator({ onSendSOS, isConnected, showDebugOver
 
               <button
                 onClick={() => {
+                  triggerHaptic(10);
                   setShowDisarmDialog(false);
                   setDisarmPin('');
                 }}
-                className="flex items-center justify-center text-[11px] text-neutral-500 hover:text-neutral-300"
+                className="flex items-center justify-center text-xs text-neutral-400 hover:text-neutral-200 font-medium active:scale-95"
               >
                 Cancel
               </button>
 
               <button
                 onClick={() => handleDisarmDigit('0')}
-                className="w-14 h-14 rounded-full bg-neutral-900 active:bg-neutral-800 text-neutral-200 flex items-center justify-center border border-neutral-800 text-xl font-light active:scale-95 transition-all mx-auto"
+                className="w-16 h-16 rounded-full bg-neutral-900 active:bg-neutral-800 text-neutral-200 flex items-center justify-center border border-neutral-800 text-2xl font-light active:scale-95 transition-all mx-auto touch-manipulation"
               >
                 0
               </button>
 
               <button
-                onClick={() => setDisarmPin((prev) => prev.slice(0, -1))}
-                className="flex items-center justify-center text-xs text-neutral-500 hover:text-neutral-300"
+                onClick={() => {
+                  triggerHaptic(10);
+                  setDisarmPin((prev) => prev.slice(0, -1));
+                }}
+                className="flex items-center justify-center text-xs text-neutral-400 hover:text-neutral-200 font-medium active:scale-95"
               >
-                ⌫
+                Clear
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Presentation Hint Banner (Only shown in Web/Examiner Demo, hidden in Native Phone APK) */}
+      {/* Presentation Hint Banner (Collapsible for Clean Phone View) */}
       {!isNative && (
-        <div className="mt-4 p-3 bg-neutral-900/80 border border-neutral-800 rounded-xl text-center w-full max-w-sm backdrop-blur">
-          <div className="flex items-center justify-center gap-1.5 text-xs text-rose-400 font-semibold uppercase tracking-wider mb-1">
-            <ShieldAlert className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
-            Stealth Trigger Protocol
-          </div>
-          <p className="text-xs text-neutral-400 leading-relaxed">
-            Type <span className="font-mono font-bold text-amber-400 bg-neutral-800 px-1 py-0.5 rounded">112</span> and tap <span className="font-mono font-bold text-amber-400 bg-neutral-800 px-1 py-0.5 rounded">=</span> to dispatch zero-audio emergency telemetry.
-          </p>
+        <div className="mt-2 text-center w-full max-w-sm px-3">
+          <button
+            onClick={() => setShowDemoGuide(!showDemoGuide)}
+            className="text-[11px] text-neutral-400 hover:text-neutral-200 bg-neutral-900/80 border border-neutral-800/80 px-3 py-1 rounded-full font-mono transition-colors inline-flex items-center gap-1.5"
+          >
+            <ShieldAlert className="w-3 h-3 text-amber-400" />
+            {showDemoGuide ? 'Hide Stealth Trigger Guide' : 'How to trigger SOS in Calculator'}
+          </button>
+
+          {showDemoGuide && (
+            <div className="mt-2 p-3 bg-neutral-900/90 border border-neutral-800 rounded-xl text-xs text-neutral-300 leading-relaxed text-left animate-fadeIn">
+              Type <span className="font-mono font-bold text-amber-400 bg-neutral-800 px-1.5 py-0.5 rounded">112</span> and tap <span className="font-mono font-bold text-amber-400 bg-neutral-800 px-1.5 py-0.5 rounded">=</span> to dispatch zero-audio emergency telemetry.
+              To lock back to the Duress Lockscreen, tap the <b>LOCK</b> notch or double-tap <b>AC</b>.
+            </div>
+          )}
         </div>
       )}
 
-      {/* Optional Academic Audit / Telemetry Inspection Panel (Shows background mechanism to evaluators) */}
+      {/* Optional Academic Audit Panel */}
       {!isNative && showDebugOverlay && (
         <div className="mt-3 w-full max-w-sm p-3 bg-neutral-950 border border-neutral-800 rounded-xl text-left text-xs font-mono text-neutral-300">
           <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-800 text-neutral-400">
