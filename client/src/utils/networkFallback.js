@@ -132,8 +132,8 @@ export async function removeQueuedIncident(queueId) {
  */
 export function constructSmsUri(payload) {
   const p = payload.payload || payload;
-  const lat = p.coordinates?.latitude || p.lat || 13.0550;
-  const lng = p.coordinates?.longitude || p.lng || 80.2600;
+  const lat = p.coordinates?.latitude || p.lat || 12.9246;
+  const lng = p.coordinates?.longitude || p.lng || 80.1271;
   const db = p.decibelLevel || p.telemetry?.decibelLevel || 45;
   const bat = p.battery?.level ?? p.telemetry?.battery?.level ?? 50;
 

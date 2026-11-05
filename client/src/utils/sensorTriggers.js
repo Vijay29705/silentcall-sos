@@ -9,19 +9,22 @@
  * 5. Heartbeat Watchdog Manager (Dead Man's Switch client).
  */
 
+import { getGeolocationTelemetry } from './telemetry.js';
+export { getGeolocationTelemetry };
+
 const DEFAULT_COORDINATES = {
-  latitude: 13.0550,
-  longitude: 80.2600,
-  accuracy: 4.5,
-  locationName: 'Anna Salai Corridor, Triplicane, Chennai, Tamil Nadu'
+  latitude: 12.9246,
+  longitude: 80.1271,
+  accuracy: 10.0,
+  locationName: 'Local Sector Command Zone, Tamil Nadu'
 };
 
 // Safe-anchor home profile for indoor 3D geofencing & vertical floor resolution (Tamil Nadu)
 const DEFAULT_SAFE_ANCHOR = {
   building: "Tower B, Flat 402",
-  street: "Anna Salai, Triplicane",
-  anchorLat: 13.0550,
-  anchorLng: 80.2600,
+  street: "Sector Perimeter, Residential Block",
+  anchorLat: 12.9246,
+  anchorLng: 80.1271,
   registeredFloor: 4
 };
 
@@ -127,67 +130,7 @@ export function resolveIndoorFloorEstimate(currentLat, currentLng) {
   return null;
 }
 
-/**
- * High-accuracy Geolocation collector
- */
-export async function getGeolocationTelemetry() {
-  if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
-    try {
-      const { Geolocation } = await import('@capacitor/geolocation');
-      await Geolocation.requestPermissions();
-      const pos = await Geolocation.getCurrentPosition({
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      });
-      if (pos && pos.coords) {
-        return {
-          latitude: parseFloat(pos.coords.latitude.toFixed(6)),
-          longitude: parseFloat(pos.coords.longitude.toFixed(6)),
-          accuracy: parseFloat((pos.coords.accuracy || 5.0).toFixed(1)),
-          fallbackUsed: false
-        };
-      }
-    } catch (e) {
-      console.warn('[SensorTriggers] Native GPS query error:', e);
-    }
-  }
-
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      return resolve({ ...DEFAULT_COORDINATES, fallbackUsed: true });
-    }
-
-    const options = {
-      enableHighAccuracy: true,
-      timeout: 6000,
-      maximumAge: 0
-    };
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        resolve({
-          latitude: parseFloat(pos.coords.latitude.toFixed(6)),
-          longitude: parseFloat(pos.coords.longitude.toFixed(6)),
-          accuracy: parseFloat(pos.coords.accuracy.toFixed(1)),
-          fallbackUsed: false
-        });
-      },
-      (err) => {
-        console.warn('[SensorTriggers] GPS error, using fallback:', err.message);
-        const jitterLat = (Math.random() - 0.5) * 0.015;
-        const jitterLng = (Math.random() - 0.5) * 0.015;
-        resolve({
-          latitude: parseFloat((DEFAULT_COORDINATES.latitude + jitterLat).toFixed(6)),
-          longitude: parseFloat((DEFAULT_COORDINATES.longitude + jitterLng).toFixed(6)),
-          accuracy: 10.5,
-          fallbackUsed: true
-        });
-      },
-      options
-    );
-  });
-}
+// Geolocation telemetry engine is exported from telemetry.js with 4-tier pre-warmed GPS & real IP triangulation
 
 /**
  * Web Audio API Ambient Decibel Estimator with 200ms Acoustic Discard Guarantee

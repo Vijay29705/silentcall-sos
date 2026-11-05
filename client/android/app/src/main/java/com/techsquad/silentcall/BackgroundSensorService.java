@@ -257,8 +257,8 @@ public class BackgroundSensorService extends Service implements SensorEventListe
     private void executeNetworkDispatch() {
         new Thread(() -> {
             try {
-                double latitude = 13.0550;
-                double longitude = 80.2600;
+                double latitude = 12.9246;
+                double longitude = 80.1271;
                 float accuracy = 5.0f;
 
                 try {

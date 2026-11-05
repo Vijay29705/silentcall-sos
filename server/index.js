@@ -114,35 +114,39 @@ function calculateDistanceKm(lat1, lon1, lat2, lon2) {
 }
 
 // Find nearest available or closest PCR vehicle
-function findNearestPcrVehicle(lat, lng) {
+function findNearestPcrVehicle(lat, lng, geoDetails) {
   let nearest = null;
   let minDistance = Infinity;
 
   for (const pcr of pcrVehicles) {
-    const dist = calculateDistanceKm(lat, lng, pcr.coordinates.latitude, pcr.coordinates.longitude);
-    if (dist < minDistance) {
-      minDistance = dist;
-      nearest = pcr;
+    if (pcr.status === 'PATROLLING_AVAILABLE') {
+      const dist = calculateDistanceKm(lat, lng, pcr.coordinates.latitude, pcr.coordinates.longitude);
+      if (dist < minDistance) {
+        minDistance = dist;
+        nearest = pcr;
+      }
     }
   }
 
-  // If the nearest pre-configured unit is farther than 10km (user is testing at their real location)
-  // Dynamically position a sector response unit near the real coordinates!
-  if (minDistance > 10) {
-    const dynamicLat = parseFloat((lat + 0.011).toFixed(5));
-    const dynamicLng = parseFloat((lng + 0.013).toFixed(5));
+  // If no available unit within 1.2 km, mobilize the local Sector Tactical Unit right in the citizen's neighborhood!
+  if (minDistance > 1.2 || !nearest) {
+    // Sector interceptor stationed ~750-850m away (0.0055 lat ≈ 610m, 0.0062 lng ≈ 680m -> ~900m direct line)
+    const dynamicLat = parseFloat((lat + 0.0055).toFixed(6));
+    const dynamicLng = parseFloat((lng + 0.0062).toFixed(6));
     const dynamicDist = calculateDistanceKm(lat, lng, dynamicLat, dynamicLng);
+
+    const localArea = geoDetails?.neighbourhood || geoDetails?.road || geoDetails?.district || 'Sector Tactical Zone';
 
     const sectorUnit = {
       unitId: `PCR-SECTOR-FAST-01`,
-      callsign: 'PCR Sector Fast Interceptor',
-      vehicleType: 'Mahindra Scorpio Emergency Unit',
-      driverName: 'Special Interceptor Officer',
+      callsign: `PCR-112 Tactical Sector Unit (${localArea})`,
+      vehicleType: 'Toyota Innova Crysta Emergency Interceptor',
+      driverName: 'Special Sub-Inspector R. Anbarasan (Sector Patrol)',
       contactNumber: '+91 94440-11211',
       status: 'DISPATCHED_EN_ROUTE',
       coordinates: { latitude: dynamicLat, longitude: dynamicLng },
       distanceKm: dynamicDist,
-      etaMinutes: Math.max(2, Math.round(dynamicDist * 2.5)),
+      etaMinutes: Math.max(2, Math.round(dynamicDist * 2.2)),
       currentAssignment: null
     };
 
@@ -155,7 +159,7 @@ function findNearestPcrVehicle(lat, lng) {
     return sectorUnit;
   }
 
-  const etaMinutes = Math.max(2, Math.round(minDistance * 2.5));
+  const etaMinutes = Math.max(2, Math.round(minDistance * 2.2));
   return {
     ...nearest,
     distanceKm: minDistance,
@@ -168,7 +172,7 @@ async function reverseGeocodeNominatim(lat, lng) {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
 
     const response = await fetch(url, {
       signal: controller.signal,
@@ -183,25 +187,25 @@ async function reverseGeocodeNominatim(lat, lng) {
       if (data && data.display_name) {
         return {
           formattedAddress: data.display_name,
-          road: data.address?.road || data.address?.suburb || 'Anna Salai (Mount Road)',
-          neighbourhood: data.address?.neighbourhood || data.address?.suburb || 'Triplicane / Marina Precinct',
-          district: data.address?.state_district || data.address?.city || 'Chennai',
+          road: data.address?.road || data.address?.suburb || 'Local Sector Road',
+          neighbourhood: data.address?.neighbourhood || data.address?.suburb || data.address?.town || data.address?.city || 'Local Sector Precinct',
+          district: data.address?.state_district || data.address?.county || data.address?.city || 'Tamil Nadu Command',
           state: data.address?.state || 'Tamil Nadu',
-          postcode: data.address?.postcode || '600002'
+          postcode: data.address?.postcode || '600001'
         };
       }
     }
   } catch (err) {
-    console.warn('[Nominatim] Reverse geocode lookup timed out or network offline. Using fallback address.');
+    console.warn('[Nominatim] Reverse geocode lookup timed out or network offline. Constructing coordinate address:', err);
   }
 
   return {
-    formattedAddress: 'Anna Salai Corridor, Triplicane, Chennai, Tamil Nadu 600002, India',
-    road: 'Anna Salai (Mount Road)',
-    neighbourhood: 'Triplicane / Marina Precinct',
-    district: 'Chennai',
+    formattedAddress: `Sector Grid [${lat.toFixed(4)}, ${lng.toFixed(4)}], Tamil Nadu State Jurisdiction`,
+    road: `Sector Axis (${lat.toFixed(3)}N, ${lng.toFixed(3)}E)`,
+    neighbourhood: 'Local Police Precinct',
+    district: 'Tamil Nadu ERSS 112 Command',
     state: 'Tamil Nadu',
-    postcode: '600002'
+    postcode: '600001'
   };
 }
 
@@ -230,10 +234,10 @@ function formatCdacErssCadSchema(incident, pcrUnit, geoDetails) {
       resolvedAddress: geoDetails.formattedAddress,
       indoorFloorEstimate: incident.indoorFloorEstimate || 'Ground / Outdoor Level',
       jurisdiction: {
-        policeStation: 'D-1 Triplicane Police Station (Greater Chennai Police Command)',
-        district: geoDetails.district || 'Chennai',
+        policeStation: `${geoDetails.neighbourhood || geoDetails.district || 'Command Sector'} Police Station (Tamil Nadu Police Command)`,
+        district: geoDetails.district || 'Tamil Nadu',
         state: geoDetails.state || 'Tamil Nadu',
-        pincode: geoDetails.postcode || '600002'
+        pincode: geoDetails.postcode || '600001'
       }
     },
     sensorMetadata: {
@@ -331,9 +335,32 @@ async function createIncident(payload = {}) {
     ambientClassification = 'Low Ambient Whispers / Enclosed Space';
   }
 
-  const lat = payload.coordinates?.latitude || (13.0550 + (Math.random() - 0.5) * 0.03);
-  const lng = payload.coordinates?.longitude || (80.2600 + (Math.random() - 0.5) * 0.03);
-  const accuracy = payload.coordinates?.accuracy || parseFloat((3 + Math.random() * 4).toFixed(1));
+  let lat = payload.coordinates?.latitude;
+  let lng = payload.coordinates?.longitude;
+  let accuracy = payload.coordinates?.accuracy;
+
+  // If coordinates missing, query real-time IP Geolocation (<200ms)
+  if (!lat || !lng) {
+    try {
+      const ipRes = await fetch('https://ipwho.is/', { signal: AbortSignal.timeout(2000) });
+      const ipData = await ipRes.json();
+      if (ipData && ipData.success !== false && ipData.latitude && ipData.longitude) {
+        lat = parseFloat(ipData.latitude.toFixed(6));
+        lng = parseFloat(ipData.longitude.toFixed(6));
+        accuracy = 15.0;
+        console.log(`[SOS-IP] Resolved caller coordinates via live IP: ${lat}, ${lng} (${ipData.city})`);
+      }
+    } catch (e) {
+      console.warn('[SOS-IP] Fallback to default command zone coordinates');
+    }
+  }
+
+  // Safe fallback if still empty
+  if (!lat || !lng) {
+    lat = 12.9246;
+    lng = 80.1271;
+    accuracy = 10.0;
+  }
 
   // Ingest indoor floor estimate from home geofence
   const indoorFloorEstimate = payload.indoorFloorEstimate || payload.telemetry?.indoorFloorEstimate || null;
@@ -350,8 +377,8 @@ async function createIncident(payload = {}) {
   // 1. Resolve Indian address via OpenStreetMap Nominatim
   const geoDetails = await reverseGeocodeNominatim(lat, lng);
 
-  // 2. Select & assign nearest PCR patrol van
-  const assignedPcr = findNearestPcrVehicle(lat, lng);
+  // 2. Select & assign nearest PCR patrol van right in local neighborhood
+  const assignedPcr = findNearestPcrVehicle(lat, lng, geoDetails);
   const pcrIndex = pcrVehicles.findIndex((v) => v.unitId === assignedPcr.unitId);
   if (pcrIndex !== -1) {
     pcrVehicles[pcrIndex].status = 'DISPATCHED_EN_ROUTE';
@@ -514,7 +541,7 @@ function revokeIncident(incidentIdOrSession, reason = 'Parent Master PIN Abort')
   const seedLat = 13.0550;
   const seedLng = 80.2600;
   const geoDetails = await reverseGeocodeNominatim(seedLat, seedLng);
-  const pcr = findNearestPcrVehicle(seedLat, seedLng);
+  const pcr = findNearestPcrVehicle(seedLat, seedLng, geoDetails);
 
   const seedIncident = {
     id: 'SOS-2026-9041',

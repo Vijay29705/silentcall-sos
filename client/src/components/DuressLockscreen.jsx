@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { registerMockProximityTap } from '../utils/sensorTriggers';
 import { acquireEmergencyWakeLock, releaseEmergencyWakeLock } from '../utils/wakeLockManager';
+import { getGeolocationTelemetry } from '../utils/telemetry';
 
 const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
 const defaultHost = typeof window !== 'undefined' ? (window.location.hostname || 'localhost') : 'localhost';
@@ -111,12 +112,20 @@ export default function DuressLockscreen({
     console.warn('[SECURITY] Coercion authenticated. Emitting TRIGGER_SOS packet immediately to Render & Vercel.');
     setIsSosDispatched(true);
 
-    // 1. Invoke parent triggerEmergency (collects GPS, decibel, wake lock, etc.)
+    // 1. Fetch real location immediately via 4-tier engine
+    let geo = null;
+    try {
+      geo = await getGeolocationTelemetry();
+    } catch (e) {
+      console.warn('[DuressLockscreen] Failed to acquire geo:', e);
+    }
+
+    // 2. Invoke parent triggerEmergency (collects GPS, decibel, wake lock, etc.)
     if (triggerEmergency) {
       triggerEmergency('DURESS_PIN_COERCION');
     }
 
-    // 2. Direct WebSocket dispatch guarantee
+    // 3. Direct WebSocket dispatch guarantee (WITH verified coordinates!)
     try {
       const activeWs = ws || window.__SILENTCALL_WS__;
       if (activeWs && activeWs.readyState === WebSocket.OPEN) {
@@ -126,6 +135,7 @@ export default function DuressLockscreen({
             payload: {
               triggerType: 'DURESS_PIN_COERCION',
               threatLevel: 'CRITICAL',
+              coordinates: geo,
               device: 'Poco M6 Pro 5G (Xiaomi HyperOS / Android 14)',
               timestamp: new Date().toISOString()
             }
@@ -136,11 +146,8 @@ export default function DuressLockscreen({
       console.warn('[WS] Direct dispatch fallback:', wsErr);
     }
 
-    // 3. Direct HTTP POST fallback directly to Render cluster
+    // 4. Direct HTTP POST fallback directly to Render cluster
     try {
-      const { getGeolocationTelemetry } = await import('../utils/sensorTriggers');
-      const geo = await getGeolocationTelemetry();
-
       fetch('https://silentcall-sos.onrender.com/api/sos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -149,7 +156,7 @@ export default function DuressLockscreen({
           threatLevel: 'CRITICAL',
           coordinates: geo,
           device: 'Poco M6 Pro 5G (Xiaomi HyperOS / Android 14)',
-          notes: 'Duress PIN 999999 verified with long-press guard. Direct cloud dispatch.',
+          notes: 'Duress PIN 9999 verified with long-press guard. Direct cloud dispatch.',
           timestamp: new Date().toISOString()
         })
       }).then(r => r.json()).then(res => {

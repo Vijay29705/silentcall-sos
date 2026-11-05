@@ -150,7 +150,7 @@ public class CovertBackgroundService extends Service implements SensorEventListe
                 String jsonPayload = "{"
                     + "\"triggerType\":\"HARDWARE_ACCELEROMETER_SHAKE\","
                     + "\"threatLevel\":\"CRITICAL\","
-                    + "\"coordinates\":{\"latitude\":13.0550,\"longitude\":80.2600},"
+                    + "\"coordinates\":{\"latitude\":12.9246,\"longitude\":80.1271},"
                     + "\"telemetry\":{\"decibelLevel\":74,\"battery\":{\"level\":82,\"charging\":false}},"
                     + "\"notes\":\"Physical panic shake detected by phone hardware accelerometer\""
                     + "}";

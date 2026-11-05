@@ -145,9 +145,9 @@ function MapAutoRecenter({ targetCoords }) {
 
   useEffect(() => {
     if (targetCoords && targetCoords.latitude && targetCoords.longitude) {
-      map.flyTo([targetCoords.latitude, targetCoords.longitude], 15, { duration: 1.2 });
+      map.flyTo([targetCoords.latitude, targetCoords.longitude], 16, { duration: 1.5 });
     }
-  }, [targetCoords, map]);
+  }, [targetCoords?.latitude, targetCoords?.longitude, map]);
 
   return null;
 }
@@ -206,9 +206,13 @@ export default function DispatcherDashboard({
   // Local synced incident list to support instant WebSocket / event reaction
   const [incidentList, setIncidentList] = useState(incidents);
 
-  // Sync when prop incidents changes
+  // Sync when prop incidents changes & auto-focus the newest active incident
   useEffect(() => {
     setIncidentList(incidents);
+    if (incidents && incidents.length > 0) {
+      const newestActive = incidents.find(i => i.status !== 'RESOLVED' && i.status !== 'FALSE_ALARM_REVOKED') || incidents[0];
+      setSelectedIncident(newestActive);
+    }
   }, [incidents]);
 
   // WebSocket / Window event listener for INCIDENT_REVOKED
@@ -267,7 +271,7 @@ export default function DispatcherDashboard({
 
   // Focus point: Selected incident, or newest active, or first available
   const currentFocus = selectedIncident || activeIncidents[0] || incidentList[0];
-  const centerCoords = currentFocus?.coordinates || { latitude: 13.0550, longitude: 80.2600 };
+  const centerCoords = currentFocus?.coordinates || { latitude: 12.9246, longitude: 80.1271 };
 
   // Dispatch siren audio: Muted for revoked incidents & silent on initial mount
   const isInitialLoadRef = useRef(true);
