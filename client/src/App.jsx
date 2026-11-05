@@ -26,6 +26,9 @@ import {
   FileCode
 } from 'lucide-react';
 
+// Detect physical native mobile app (Capacitor Android on Poco M6 Pro)
+export const isNative = typeof window !== 'undefined' && Boolean(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
 // Active Server Target (Default: Cloud Render Cluster so PC Console and Mobile App always share the same live broker)
 export const getActiveServerTarget = () => {
   if (typeof window !== 'undefined') {
