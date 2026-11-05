@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import {
@@ -26,7 +26,9 @@ import {
   Undo2,
   History,
   AlertOctagon,
-  Smartphone
+  Smartphone,
+  Info,
+  RotateCcw
 } from 'lucide-react';
 
 // ==========================================
@@ -188,6 +190,8 @@ export default function DispatcherDashboard({
   pcrVehicles = [],
   onResolveIncident,
   onSimulateDemo,
+  onResetDemo,
+  onOpenSpecs,
   isConnected
 }) {
   // Filters: 'ALL' | 'ACTIVE' | 'REVOKED' | 'RESOLVED'
@@ -400,8 +404,19 @@ export default function DispatcherDashboard({
           </div>
         </div>
 
-        {/* System Status Indicators */}
-        <div className="flex items-center gap-2 sm:gap-5 text-xs shrink-0">
+        {/* System Status Indicators & Quick Controls */}
+        <div className="flex items-center gap-2 sm:gap-4 text-xs shrink-0">
+          {onOpenSpecs && (
+            <button
+              onClick={onOpenSpecs}
+              className="flex items-center gap-1 text-[11px] sm:text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-700 transition-colors"
+              title="System Architecture & Specifications"
+            >
+              <Info className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden md:inline">Specs</span>
+            </button>
+          )}
+
           <div className="hidden md:flex flex-col items-end">
             <span className="text-slate-400 text-[11px]">False-Alarm Guard</span>
             <span className="text-amber-400 font-mono font-medium flex items-center gap-1">
@@ -410,17 +425,17 @@ export default function DispatcherDashboard({
             </span>
           </div>
 
-          <div className="hidden sm:flex flex-col items-end border-l border-slate-800 pl-4">
-            <span className="text-slate-400 text-[11px]">WebSocket Stream</span>
+          <div className="hidden sm:flex flex-col items-end border-l border-slate-800 pl-3">
+            <span className="text-slate-400 text-[11px]">WebSocket</span>
             <span className={`font-mono font-medium flex items-center gap-1.5 ${
               isConnected ? 'text-emerald-400' : 'text-amber-400'
             }`}>
               <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              {isConnected ? 'SYNCED' : 'RECONNECTING...'}
+              {isConnected ? 'SYNCED' : 'OFFLINE'}
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 sm:border-l sm:border-slate-800 sm:pl-4">
+          <div className="flex items-center gap-1.5 sm:gap-2 sm:border-l sm:border-slate-800 sm:pl-3">
             <button
               onClick={() => setAudioPingsEnabled(!audioPingsEnabled)}
               className="p-1.5 sm:p-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition-colors"
@@ -428,6 +443,16 @@ export default function DispatcherDashboard({
             >
               {audioPingsEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4" />}
             </button>
+
+            {onResetDemo && (
+              <button
+                onClick={onResetDemo}
+                title="Reset Demo State"
+                className="p-1.5 sm:p-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition-colors active:scale-95"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
 
             {onSimulateDemo && (
               <button

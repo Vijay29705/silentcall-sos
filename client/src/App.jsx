@@ -40,12 +40,7 @@ export const WS_URL = import.meta.env.VITE_WS_URL || (isNative ? 'wss://silentca
 export const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : (isNative ? 'https://silentcall-sos.onrender.com' : (isLocal ? `http://${defaultHost}:5000` : 'https://silentcall-sos.onrender.com')));
 
 export default function App() {
-  const isMobileInitial = typeof window !== 'undefined' ? window.innerWidth < 1024 : false;
-  const [isMobileScreen, setIsMobileScreen] = useState(isMobileInitial);
-  // Default to PHONE on mobile devices, SPLIT on desktop
-  const [activeTab, setActiveTab] = useState(isNative || isMobileInitial ? 'PHONE' : 'SPLIT');
   const [mobileScreenState, setMobileScreenState] = useState('LOCKSCREEN');
-
   const [incidents, setIncidents] = useState([]);
   const [pcrVehicles, setPcrVehicles] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -63,16 +58,6 @@ export default function App() {
   useEffect(() => {
     activeIncidentIdRef.current = activeIncidentId;
   }, [activeIncidentId]);
-
-  // Window resize listener to automatically adapt phone / desktop viewports
-  useEffect(() => {
-    const handleResize = () => {
-      const isMobile = window.innerWidth < 1024;
-      setIsMobileScreen(isMobile);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   // Auto-request GPS Location Permissions & Listen for Screen Wake Lock
   useEffect(() => {
@@ -406,114 +391,12 @@ export default function App() {
     );
   }
 
-  const activeIncidentsCount = incidents.filter(
-    (i) => i.status !== 'RESOLVED' && i.status !== 'FALSE_ALARM_REVOKED'
-  ).length;
 
   return (
     <div className="flex flex-col h-[100dvh] w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
-      
-      {/* Top Presentation Bar */}
-      <header className="bg-slate-900 border-b border-slate-800 px-3 sm:px-5 py-2 sm:py-2.5 flex items-center justify-between z-20 shrink-0">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
-            <span className="font-extrabold text-white text-xs sm:text-sm tracking-tight flex items-center gap-1.5">
-              SilentCall-SOS
-              <span className="hidden sm:inline text-[10px] bg-rose-600/30 text-rose-300 border border-rose-500/50 px-2 py-0.2 rounded-full font-mono">
-                C-DAC ERSS 112
-              </span>
-            </span>
-          </div>
-
-          <button
-            onClick={() => setShowProjectInfo(!showProjectInfo)}
-            className="flex items-center gap-1 text-[11px] sm:text-xs text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-800 px-2 sm:px-2.5 py-1 rounded-lg border border-slate-700/60 transition-colors"
-          >
-            <Info className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">System Architecture</span>
-            <span className="sm:hidden">Specs</span>
-          </button>
-        </div>
-
-        {/* Desktop View Switcher Pills */}
-        <div className="hidden lg:flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner">
-          <button
-            onClick={() => setActiveTab('PHONE')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'PHONE'
-                ? 'bg-rose-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-            }`}
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-            Citizen Phone
-          </button>
-
-          <button
-            onClick={() => setActiveTab('SPLIT')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'SPLIT'
-                ? 'bg-rose-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-            }`}
-          >
-            <Columns className="w-3.5 h-3.5" />
-            Split Console
-          </button>
-
-          <button
-            onClick={() => setActiveTab('DISPATCH')}
-            className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'DISPATCH'
-                ? 'bg-rose-600 text-white shadow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-            }`}
-          >
-            <LayoutDashboard className="w-3.5 h-3.5" />
-            112 Radar Console
-            {activeIncidentsCount > 0 && (
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping absolute -top-0.5 -right-0.5" />
-            )}
-          </button>
-        </div>
-
-        {/* Quick Controls & Status */}
-        <div className="flex items-center gap-2">
-          <div className="hidden lg:flex items-center gap-1.5 mr-2">
-            <button
-              onClick={() => triggerEmergency('DURESS_PIN_COERCION')}
-              className="text-[11px] bg-rose-950/60 hover:bg-rose-900 border border-rose-800/80 text-rose-300 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1"
-            >
-              <Radio className="w-3 h-3 text-rose-400" />
-              Simulate Duress
-            </button>
-
-            <button
-              onClick={handleResetDemo}
-              title="Reset Demo State"
-              className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 p-1.5 rounded-lg border border-slate-700 transition-colors"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1.5 text-xs font-mono">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-              }`}
-            />
-            <span className="hidden sm:inline text-slate-400 text-[11px]">
-              {isConnected ? 'NODE:5000 SYNCED' : 'OFFLINE'}
-            </span>
-          </div>
-        </div>
-      </header>
-
       {/* Floating Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-12 sm:top-14 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 border border-rose-500/80 text-white text-xs font-medium px-4 py-2 rounded-xl shadow-2xl shadow-rose-950/60 flex items-center gap-2 animate-bounce backdrop-blur max-w-[90vw] text-center">
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 border border-rose-500/80 text-white text-xs font-medium px-4 py-2 rounded-xl shadow-2xl shadow-rose-950/60 flex items-center gap-2 animate-bounce backdrop-blur max-w-[90vw] text-center">
           <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
           <span className="truncate">{toastMessage}</span>
         </div>
@@ -579,92 +462,18 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Presentation Viewport */}
-      <main className="flex-1 overflow-hidden relative">
-        {/* TAB 1: PHONE VIEW (Edge-to-edge on mobile, framed on desktop) */}
-        {activeTab === 'PHONE' && (
-          <div className="w-full h-full overflow-y-auto overflow-x-hidden bg-black pb-16 lg:pb-0 flex items-center justify-center">
-            {renderCitizenPhone(!isMobileScreen)}
-          </div>
-        )}
-
-        {/* TAB 2: DISPATCH CONSOLE */}
-        {activeTab === 'DISPATCH' && (
-          <div className="w-full h-full pb-16 lg:pb-0">
-            <DispatcherDashboard
-              incidents={incidents}
-              pcrVehicles={pcrVehicles}
-              onResolveIncident={handleResolveIncident}
-              onSimulateDemo={() => triggerEmergency('COVERT_CALCULATOR_112')}
-              isConnected={isConnected}
-            />
-          </div>
-        )}
-
-        {/* TAB 3: SPLIT CONSOLE (Side-by-Side: Left Citizen Phone, Right 112 Console) */}
-        {activeTab === 'SPLIT' && (
-          <div className="flex h-full w-full overflow-hidden">
-            <div className="w-[420px] shrink-0 border-r border-slate-800 bg-slate-950/80 flex flex-col items-center justify-center p-4 overflow-y-auto">
-              <div className="text-[11px] font-mono text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                <Smartphone className="w-3.5 h-3.5 text-rose-400" />
-                Citizen Hardware Simulator
-              </div>
-              {renderCitizenPhone(true)}
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <DispatcherDashboard
-                incidents={incidents}
-                pcrVehicles={pcrVehicles}
-                onResolveIncident={handleResolveIncident}
-                onSimulateDemo={() => triggerEmergency('COVERT_CALCULATOR_112')}
-                isConnected={isConnected}
-              />
-            </div>
-          </div>
-        )}
+      {/* 112 CENTRAL DISPATCHER CONSOLE BOARD - Sole Primary Visual */}
+      <main className="flex-1 overflow-hidden relative h-full w-full">
+        <DispatcherDashboard
+          incidents={incidents}
+          pcrVehicles={pcrVehicles}
+          onResolveIncident={handleResolveIncident}
+          onSimulateDemo={() => triggerEmergency('COVERT_CALCULATOR_112')}
+          onResetDemo={handleResetDemo}
+          onOpenSpecs={() => setShowProjectInfo(true)}
+          isConnected={isConnected}
+        />
       </main>
-
-      {/* Floating Bottom Navigation Dock for Mobile Phone View */}
-      {isMobileScreen && (
-        <nav className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 bg-slate-900/90 backdrop-blur-xl border border-slate-700/80 rounded-2xl shadow-2xl px-3 py-2 flex items-center gap-2">
-          <button
-            onClick={() => setActiveTab('PHONE')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 touch-manipulation ${
-              activeTab === 'PHONE'
-                ? 'bg-rose-600 text-white shadow-md shadow-rose-950/60'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
-            }`}
-          >
-            <Smartphone className="w-4 h-4" />
-            <span>Citizen Phone</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('DISPATCH')}
-            className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 touch-manipulation ${
-              activeTab === 'DISPATCH'
-                ? 'bg-rose-600 text-white shadow-md shadow-rose-950/60'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
-            }`}
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            <span>112 Radar</span>
-            {activeIncidentsCount > 0 && (
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping absolute -top-1 -right-1 border border-slate-900" />
-            )}
-          </button>
-
-          <div className="w-[1px] h-4 bg-slate-700 mx-0.5" />
-
-          <button
-            onClick={handleResetDemo}
-            title="Reset Demo"
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 active:scale-95 transition-all touch-manipulation"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-        </nav>
-      )}
     </div>
   );
 }
