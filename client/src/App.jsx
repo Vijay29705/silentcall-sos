@@ -26,18 +26,28 @@ import {
   FileCode
 } from 'lucide-react';
 
-// Production & Local Dynamic API/WS Configuration
-const isNative = typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
-const isLocal = !isNative && typeof window !== 'undefined' && (
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1' ||
-  window.location.hostname.startsWith('192.168.') ||
-  window.location.hostname.startsWith('10.')
-);
-const defaultProto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+// Active Server Target (Default: Cloud Render Cluster so PC Console and Mobile App always share the same live broker)
+export const getActiveServerTarget = () => {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const serverParam = params.get('server');
+    if (serverParam === 'local' || serverParam === 'render') {
+      localStorage.setItem('silentcall_server_target', serverParam);
+      return serverParam;
+    }
+    const saved = localStorage.getItem('silentcall_server_target');
+    if (saved) return saved;
+  }
+  return 'render';
+};
+
+const serverTarget = getActiveServerTarget();
+const isLocalTarget = serverTarget === 'local';
 const defaultHost = typeof window !== 'undefined' ? (window.location.hostname || 'localhost') : 'localhost';
-export const WS_URL = import.meta.env.VITE_WS_URL || (isNative ? 'wss://silentcall-sos.onrender.com' : (isLocal ? `${defaultProto}//${defaultHost}:5000` : 'wss://silentcall-sos.onrender.com'));
-export const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : (isNative ? 'https://silentcall-sos.onrender.com' : (isLocal ? `http://${defaultHost}:5000` : 'https://silentcall-sos.onrender.com')));
+const defaultProto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+export const WS_URL = import.meta.env.VITE_WS_URL || (isLocalTarget ? `${defaultProto}//${defaultHost}:5000` : 'wss://silentcall-sos.onrender.com');
+export const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.VITE_WS_URL ? import.meta.env.VITE_WS_URL.replace(/^ws(s?):/, 'http$1:') : (isLocalTarget ? `http://${defaultHost}:5000` : 'https://silentcall-sos.onrender.com'));
 
 export default function App() {
   const [mobileScreenState, setMobileScreenState] = useState('LOCKSCREEN');
@@ -382,6 +392,14 @@ export default function App() {
     </div>
   );
 
+  // Toggle active server between Cloud Render and Local Machine
+  const handleToggleServer = () => {
+    const current = getActiveServerTarget();
+    const next = current === 'render' ? 'local' : 'render';
+    localStorage.setItem('silentcall_server_target', next);
+    window.location.reload();
+  };
+
   // Pure Native Mobile Viewport (Zero Demo UI / Zero Headers)
   if (isNative) {
     return (
@@ -472,6 +490,8 @@ export default function App() {
           onResetDemo={handleResetDemo}
           onOpenSpecs={() => setShowProjectInfo(true)}
           isConnected={isConnected}
+          serverTarget={serverTarget}
+          onToggleServer={handleToggleServer}
         />
       </main>
     </div>

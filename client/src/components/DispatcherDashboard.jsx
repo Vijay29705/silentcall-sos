@@ -192,7 +192,9 @@ export default function DispatcherDashboard({
   onSimulateDemo,
   onResetDemo,
   onOpenSpecs,
-  isConnected
+  isConnected,
+  serverTarget = 'render',
+  onToggleServer
 }) {
   // Filters: 'ALL' | 'ACTIVE' | 'REVOKED' | 'RESOLVED'
   const [filter, setFilter] = useState('ALL');
@@ -430,12 +432,25 @@ export default function DispatcherDashboard({
           </div>
 
           <div className="hidden sm:flex flex-col items-end border-l border-slate-800 pl-3">
-            <span className="text-slate-400 text-[11px]">WebSocket</span>
+            <span className="text-slate-400 text-[11px] flex items-center gap-1">
+              Broker:
+              {onToggleServer ? (
+                <button
+                  onClick={onToggleServer}
+                  className="text-[10px] text-cyan-400 hover:text-cyan-300 underline font-mono"
+                  title="Click to toggle between Cloud Render Cluster and Local Machine"
+                >
+                  {serverTarget === 'local' ? 'Localhost:5000' : 'Cloud Render'}
+                </button>
+              ) : (
+                <span>{serverTarget === 'local' ? 'Local' : 'Cloud'}</span>
+              )}
+            </span>
             <span className={`font-mono font-medium flex items-center gap-1.5 ${
               isConnected ? 'text-emerald-400' : 'text-amber-400'
             }`}>
               <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              {isConnected ? 'SYNCED' : 'OFFLINE'}
+              {isConnected ? (serverTarget === 'local' ? 'LOCAL SYNCED' : 'CLOUD SYNCED') : 'CONNECTING...'}
             </span>
           </div>
 
